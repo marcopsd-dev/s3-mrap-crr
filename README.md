@@ -14,9 +14,10 @@
 - [Description](#-description)
 - [Architecture at a Glance](Architecture-at-a-Glance)
 - [Security & Resilience Highlights](#-security--resilience-highlights)
-- [ JSON CloudFormation Code ](JSON-CloudFormation-Code)
-- [GUI Console Use](GUI-Console-Use)
-
+- [CloudFormation Stacks](CloudFormation-Stacks)
+    - [JSON Stack #1](JSON-Stack-#1)
+    - [JSON Stack #2](JSON-Stack-#2)
+    - [JSON Stack #3](JSON-Stack-#3)
   
 ---
 
@@ -30,33 +31,65 @@ This project demonstrates a **production-grade, highly available, fail-over, and
 
 | Tools | Description |
 |---------|------------|
-| 🪣 **S3 Buckets** | Three buckets deployed across separate AWS regions for high availibility, fail-over, and  |
-| 🌐 **Cross-Region Replication (CRR)** | Automatic duplication of objects stored in S3, and object versioning |
-| 🚀 **Multi-Region Access Points (MRAP)** | Global read/write access via MRAP |
-| 🔐 **AWS KMS (customer-managed keys)**| Customer-managed KMS keys per region |
-| 🧱 **S3 Object Lock (immutable storage)**| Object Lock enabled for protection (immutability) |
+| 🪣 **S3 Buckets** | Three buckets deployed across separate AWS regions for high availability and failover |
+| 🌐 **Cross-Region Replication (CRR)** | Automatic replication of objects and object versions across regions |
+| 🚀 **Multi-Region Access Points (MRAP)** | Global read/write access to the closest available S3 bucket |
+| 🔐 **AWS KMS (customer-managed keys)** | Customer-managed KMS keys per region for encryption at rest |
+| 🧱 **S3 Object Lock (immutable storage)** | Write-once, read-many (WORM) protection to prevent deletion or modification |
+| 🔄 **S3 Object Versioning** | Preserves multiple versions of objects for recovery and rollback |
+| 📊 **Amazon CloudWatch Alerts** | Monitoring and alerts for bucket activity, errors, and security events |
+| 🧾 **IAM Policies & Roles** | Least-privilege access control for S3, KMS, replication, and logging |
+| 🕵️ **Amazon Macie** | Automated discovery and classification of sensitive data in S3 |
+
+### Architecture Diagram: 
 
 ---
 
 ## 🔐 Security & Resilience Highlights
 
-✅ **Encryption at Rest**  
-- All objects encrypted using **AWS KMS (CMKs)**  
+| Tool / Control                           | MITRE ATT&CK Technique    | Technique ID | How It Helps                                                 |
+| ---------------------------------------- | ------------------------- | ------------ | ------------------------------------------------------------ |
+| 🪣 **S3 Buckets (multi-region)**         | Data from Cloud Storage   | T1530        | Protects against data loss by spreading data across regions  |
+| 🌐 **Cross-Region Replication (CRR)**    | Data Encrypted for Impact | T1486        | Ensures data survives ransomware or destructive attacks      |
+| 🚀 **Multi-Region Access Points (MRAP)** | Network Service Discovery | T1046        | Reduces attack impact by routing users to healthy regions    |
+| 🔐 **AWS KMS (CMKs)**                    | Unsecured Credentials     | T1552        | Prevents attackers from reading stolen data at rest          |
+| 🧱 **S3 Object Lock (WORM)**             | Inhibit System Recovery   | T1490        | Stops attackers from deleting or overwriting backups         |
+| 🔄 **S3 Object Versioning**              | Data Destruction          | T1485        | Enables recovery of deleted or altered objects               |
+| 📊 **CloudWatch Alerts**                 | Account Manipulation      | T1098        | Detects abnormal API activity and permission changes         |
+| 🧾 **IAM Policies & Roles**              | Abuse of Valid Accounts   | T1078        | Limits attacker impact through least-privilege access        |
+| 🕵️ **Amazon Macie**                     | Data from Cloud Storage   | T1530        | Detects sensitive data exposure and misconfigurations        |
 
-✅ **Ransomware Protection**  
-- **S3 Object Lock** prevents deletion or modification  
-
-✅ **Least-Privilege Access**  
-- IAM-controlled replication roles  
-
-✅ **Disaster Recovery Ready**  
-- Multi-region data durability and availability  
-
----
-
-## JSON CloudFormation Code
-
+ 
 
 ---
 
-## GUI Console Use
+## CloudFormation Stacks
+
+### [JSON Stack #1](https://github.com/marcopsd-dev/s3-mrap-crr/blob/main/S3_Bucket_CFN_JSON)
+
+#### Description:
+This CloudFormation stack implements a secure Amazon S3 storage by enabling Object Lock and Versioning to protect data from deletion or modification, using customer-managed AWS KMS keys for strong encryption, and enforcing least-privilege access through IAM roles, policies, and conditions. A separate, hardened logging bucket is included to securely store audit logs. This design helps protect sensitive data, supports compliance requirements, and improves resilience against accidental or malicious actions.
+
+#### Stack Diagram:
+<img width="7476" height="2709" alt="s3_Initial_Infrastructure" src="https://github.com/user-attachments/assets/7ed31e1a-8a34-4078-b196-5568d95af701" />
+
+---
+### [JSON Stack #2](https://github.com/marcopsd-dev/s3-mrap-crr/blob/main/s3_bucket_region_2)
+
+#### Description:
+This CloudFormation stack deploys a secure, versioned S3 bucket with Object Lock and KMS encryption; reusable across regions for cross-region replication (CRR).
+
+#### Stack Diagram:
+<img width="6484" height="544" alt="s3_Replicate_Bucket" src="https://github.com/user-attachments/assets/3c3cbc19-6458-4f31-91bf-12af5f1bedba" />
+
+---
+
+### [JSON Stack #3](https://github.com/marcopsd-dev/s3-mrap-crr/blob/main/S3_CRR_MRAP)
+
+#### Description:
+This CloudFormation template enables S3 Cross-Region Replication (CRR) to automatically replicate objects across multiple buckets in different regions and creates a Multi-Region Access Point (MRAP) for unified access. This ensures high availability, disaster recovery readiness, and global data accessibility while maintaining strong encryption on replicated objects. It helps organizations protect critical data, meet compliance requirements, and simplify cross-region data management in AWS.
+
+#### Stack Diagram:
+<img width="6228" height="591" alt="s3_CRR_MRAP" src="https://github.com/user-attachments/assets/7a45a333-933d-4f08-818f-2e662164d3f0" />
+
+
