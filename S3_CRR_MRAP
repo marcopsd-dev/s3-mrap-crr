@@ -1,0 +1,57 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Enable S3 Cross-Region Replication and Multi-Region Access Point (MRAP)",
+
+  "Resources": {
+
+    "PrimaryBucketReplication": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": "!!!PRIMARY_BUCKET_NAME",
+
+        "ReplicationConfiguration": {
+          "Role": "!!!REPLICATION_ROLE_ARN",
+          "Rules": [
+            {
+              "Id": "ReplicateToSecondary",
+              "Status": "Enabled",
+              "Priority": 1,
+              "DeleteMarkerReplication": { "Status": "Enabled" },
+              "Destination": {
+                "Bucket": "!!!SECONDARY_BUCKET_ARN",
+                "EncryptionConfiguration": {
+                  "ReplicaKmsKeyID": "!!!SECONDARY_KMS_KEY_ARN"
+                }
+              }
+            },
+            {
+              "Id": "ReplicateToTertiary",
+              "Status": "Enabled",
+              "Priority": 2,
+              "DeleteMarkerReplication": { "Status": "Enabled" },
+              "Destination": {
+                "Bucket": "!!!TERTIARY_BUCKET_ARN",
+                "EncryptionConfiguration": {
+                  "ReplicaKmsKeyID": "!!!TERTIARY_KMS_KEY_ARN"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    "MultiRegionAccessPoint": {
+      "Type": "AWS::S3::MultiRegionAccessPoint",
+      "Properties": {
+        "Name": "!!!MRAP_NAME",
+        "Regions": [
+          { "Bucket": "!!!PRIMARY_BUCKET_NAME" },
+          { "Bucket": "!!!SECONDARY_BUCKET_NAME" },
+          { "Bucket": "!!!TERTIARY_BUCKET_NAME" }
+        ]
+      }
+    }
+
+  }
+}
