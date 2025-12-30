@@ -62,7 +62,7 @@
             {
               "Sid": "AllowAccountFullAccess",
               "Effect": "Allow",
-              "Principal": { "AWS": "arn:aws:iam::377169020647:user/IAMADMIN" },
+              "Principal": { "AWS": "!!!REPLACE_WITH_USER_ARN" },
               "Action": "kms:*",
               "Resource": "*"
             }
