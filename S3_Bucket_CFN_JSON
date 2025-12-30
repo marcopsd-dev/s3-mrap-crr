@@ -148,7 +148,81 @@
           }
         ]
       }
+    }, 
+    "LoggingKmsKey": {
+  "Type": "AWS::KMS::Key",
+  "Properties": {
+    "Description": "KMS key for Logging Bucket - Restricted to Admin",
+    "KeyPolicy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "AllowAdminFullAccess",
+          "Effect": "Allow",
+          "Principal": { "AWS": "!!!REPLACE_WITH_ADMIN_ROLE_ARN" },
+          "Action": "kms:*",
+          "Resource": "*"
+        },
+        {
+          "Sid": "AllowS3LogDeliveryToEncrypt",
+          "Effect": "Allow",
+          "Principal": { "Service": "logging.s3.amazonaws.com" },
+          "Action": ["kms:GenerateDataKey", "kms:Encrypt"],
+          "Resource": "*"
+        }
+      ]
     }
+  }
+},
+"LoggingBucket": {
+  "Type": "AWS::S3::Bucket",
+  "Properties": {
+    "BucketName": "!!!REPLACE_WITH_UNIQUE_LOG_BUCKET_NAME",
+    "ObjectLockEnabled": true,
+    "VersioningConfiguration": { "Status": "Enabled" },
+    "BucketEncryption": {
+      "ServerSideEncryptionConfiguration": [
+        {
+          "ServerSideEncryptionByDefault": {
+            "SSEAlgorithm": "aws:kms",
+            "KMSMasterKeyID": { "Fn::GetAtt": ["LoggingKmsKey", "Arn"] }
+          }
+        }
+      ]
+    }
+  }
+},
+"LoggingBucketPolicy": {
+  "Type": "AWS::S3::BucketPolicy",
+  "Properties": {
+    "Bucket": { "Ref": "LoggingBucket" },
+    "PolicyDocument": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "AllowS3LogDelivery",
+          "Effect": "Allow",
+          "Principal": { "Service": "logging.s3.amazonaws.com" },
+          "Action": "s3:PutObject",
+          "Resource": { "Fn::Join": ["", [{ "Fn::GetAtt": ["LoggingBucket", "Arn"] }, "/*"]]}
+        },
+        {
+          "Sid": "RestrictAccessToAdminOnly",
+          "Effect": "Deny",
+          "NotPrincipal": { 
+            "AWS": "!!!REPLACE_WITH_ADMIN_ROLE_ARN",
+            "Service": "logging.s3.amazonaws.com"
+          },
+          "Action": "s3:*",
+          "Resource": [
+            { "Fn::GetAtt": ["LoggingBucket", "Arn"] },
+            { "Fn::Join": ["", [{ "Fn::GetAtt": ["LoggingBucket", "Arn"] }, "/*"]]}
+          ]
+        }
+      ]
+    }
+  }
+}
 
   }
 }
