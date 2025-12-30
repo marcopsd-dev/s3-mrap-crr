@@ -1,9 +1,46 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Single S3 bucket with Object Lock, Versioning, KMS encryption, and Replication IAM Role (Steps 1-4)",
+  "Description": "S3 bucket with Object Lock, Versioning, KMS encryption, and Replication IAM Role",
 
   "Resources": {
-
+"AppAccessRole": {
+  "Type": "AWS::IAM::Role",
+  "Properties": {
+    "AssumeRolePolicyDocument": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": { "Service": "s3.amazonaws.com" }, 
+          "Action": "sts:AssumeRole"
+        }
+      ]
+    },
+    "Policies": [
+      {
+        "PolicyName": "S3AndKMSAccess",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+              "Resource": [
+                { "Fn::GetAtt": ["S3Bucket", "Arn"] },
+                { "Fn::Join": ["", [{ "Fn::GetAtt": ["S3Bucket", "Arn"] }, "/*"]]}
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+              "Resource": { "Fn::GetAtt": ["S3KmsKey", "Arn"] }
+            }
+          ]
+        }
+      }
+    ]
+  }
+},
     "S3KmsKey": {
       "Type": "AWS::KMS::Key",
       "Properties": {
@@ -15,7 +52,7 @@
             {
               "Sid": "AllowAccountFullAccess",
               "Effect": "Allow",
-              "Principal": { "AWS": "!!!REPLACE_WITH_ACCOUNT_ROOT_ARN" },
+              "Principal": { "AWS": "!!!REPLACE WITH ACCT ARN" },
               "Action": "kms:*",
               "Resource": "*"
             }
@@ -27,7 +64,7 @@
     "S3Bucket": {
       "Type": "AWS::S3::Bucket",
       "Properties": {
-        "BucketName": "!!!REPLACE_WITH_BUCKET_NAME",
+        "BucketName": "!!!REPLACE WITH BUCKET NAME",
         "ObjectLockEnabled": true,
         "VersioningConfiguration": { "Status": "Enabled" },
         "BucketEncryption": {
