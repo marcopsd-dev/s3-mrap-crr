@@ -1,0 +1,44 @@
+{ 
+ "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "S3 bucket with Object Lock, Versioning, KMS encryption",
+
+  "Resources": {
+    "S3KmsKey": {
+      "Type": "AWS::KMS::Key",
+      "Properties": {
+        "Description": "KMS key for S3 bucket encryption",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": { "AWS": "!!!REPLACE WITH ACCT ARN" },
+              "Action": "kms:*",
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+
+    "S3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": "!!!REPLACE WITH BUCKET NAME",
+        "ObjectLockEnabled": true,
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": { "Fn::GetAtt": ["S3KmsKey", "Arn"] }
+              }
+            }
+          ]
+        }
+      }
+    }
+  } } 
