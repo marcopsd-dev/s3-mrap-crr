@@ -65,7 +65,7 @@ This project demonstrates a **production-grade, highly available, fail-over, and
 
 ## CloudFormation Stacks
 
-### [JSON Stack #1](https://github.com/marcopsd-dev/s3-mrap-crr/blob/main/S3_Bucket_CFN_JSON)
+### [JSON Stack #1](S3_Bucket_CFN_JSON)
 
 #### Description:
 This CloudFormation stack implements a secure Amazon S3 storage by enabling Object Lock and Versioning to protect data from deletion or modification, using customer-managed AWS KMS keys for strong encryption, and enforcing least-privilege access through IAM roles, policies, and conditions. A separate, hardened logging bucket is included to securely store audit logs. This design helps protect sensitive data, supports compliance requirements, and improves resilience against accidental or malicious actions.
@@ -74,7 +74,7 @@ This CloudFormation stack implements a secure Amazon S3 storage by enabling Obje
 <img width="7476" height="2709" alt="s3_Initial_Infrastructure" src="https://github.com/user-attachments/assets/7ed31e1a-8a34-4078-b196-5568d95af701" />
 
 ---
-### [JSON Stack #2](https://github.com/marcopsd-dev/s3-mrap-crr/blob/main/s3_bucket_region_2)
+### [JSON Stack #2](s3_bucket_region_2)
 
 #### Description:
 This CloudFormation stack deploys a secure, versioned S3 bucket with Object Lock and KMS encryption; reusable across regions for cross-region replication (CRR).
@@ -84,7 +84,7 @@ This CloudFormation stack deploys a secure, versioned S3 bucket with Object Lock
 
 ---
 
-### [JSON Stack #3](https://github.com/marcopsd-dev/s3-mrap-crr/blob/main/S3_CRR_MRAP)
+### [JSON Stack #3](S3_CRR_MRAP)
 
 #### Description:
 This CloudFormation template enables S3 Cross-Region Replication (CRR) to automatically replicate objects across multiple buckets in different regions and creates a Multi-Region Access Point (MRAP) for unified access. This ensures high availability, disaster recovery readiness, and global data accessibility while maintaining strong encryption on replicated objects. It helps organizations protect critical data, meet compliance requirements, and simplify cross-region data management in AWS.
