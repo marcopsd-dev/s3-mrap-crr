@@ -72,7 +72,8 @@ This project implements a secure and resilient Amazon S3 solution featuring KMS-
 This CloudFormation stack implements a secure Amazon S3 storage by enabling Object Lock and Versioning to protect data from deletion or modification, using customer-managed AWS KMS keys for strong encryption, and enforcing least-privilege access through IAM roles, policies, and conditions. A separate, hardened logging bucket is included to securely store audit logs. This design helps protect sensitive data, supports compliance requirements, and improves resilience against accidental or malicious actions.
 
 #### Stack Diagram:
-<img width="7476" height="2709" alt="s3_Initial_Infrastructure" src="https://github.com/user-attachments/assets/7ed31e1a-8a34-4078-b196-5568d95af701" />
+
+<img width="7659" height="2742" alt="S3_UPDATED_STACK_1" src="https://github.com/user-attachments/assets/8e99ceb6-272b-4335-8b6e-ccde6265a499" />
 
 ---
 ### [JSON Stack #2](s3_bucket_region_2)
