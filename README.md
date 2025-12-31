@@ -22,9 +22,10 @@
   
 ---
 
-## 🧭 Description <a id="description"></a>
+## 🧭 Description <a id="description"></a> 
 
 This project implements a secure and resilient Amazon S3 solution featuring KMS-encrypted buckets with Object Lock and versioning to prevent data loss or tampering. Access is tightly controlled using least-privilege IAM roles, and all activity is captured in a restricted, immutable logging bucket for auditing. With built-in S3 replication and CloudWatch monitoring for access-denied events, the architecture creates a high-availability, disaster recovery, and ransomware-resistant design optimized for global access, durability, and security.
+
 ---
 
 ## 🏗️ Architecture at a Glance <a id="architecture"></a>
