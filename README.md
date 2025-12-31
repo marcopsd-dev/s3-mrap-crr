@@ -11,23 +11,23 @@
 
 # 📑 Table of Contents
 
-- [Description](#-description)
-- [Architecture at a Glance](Architecture-at-a-Glance)
-- [Security & Resilience Highlights](#-security--resilience-highlights)
-- [CloudFormation Stacks](CloudFormation-Stacks)
-    - [JSON Stack #1](JSON-Stack-#1)
-    - [JSON Stack #2](JSON-Stack-#2)
-    - [JSON Stack #3](JSON-Stack-#3)
+- [Description](#description)
+- [Architecture at a Glance](#architecture)
+- [Security & Resilience Highlights](#security)
+- [CloudFormation Stacks](#cloudformation-stacks)
+  - [JSON Stack #1](#json-stack-1)
+  - [JSON Stack #2](#json-stack-2)
+  - [JSON Stack #3](#json-stack-3)
+
   
 ---
 
 ## 🧭 Description
 
-This project demonstrates a **production-grade, highly available, fail-over, and secure AWS S3 architecture** designed for **global access, data durability, and ransomware resilience**.
-
+This project implements a secure and resilient Amazon S3 solution featuring KMS-encrypted buckets with Object Lock and versioning to prevent data loss or tampering. Access is tightly controlled using least-privilege IAM roles, and all activity is captured in a restricted, immutable logging bucket for auditing. With built-in S3 replication and CloudWatch monitoring for access-denied events, the architecture creates a high-availability, disaster recovery, and ransomware-resistant design optimized for global access, durability, and security.
 ---
 
-## 🏗️ Architecture at a Glance
+## 🏗️ Architecture at a Glance <a id="architecture"></a>
 
 | Tools | Description |
 |---------|------------|
@@ -45,7 +45,7 @@ This project demonstrates a **production-grade, highly available, fail-over, and
 
 ---
 
-## 🔐 Security & Resilience Highlights
+## 🔐 Security & Resilience Highlights <a id="security"></a>
 
 | Tool / Control                           | MITRE ATT&CK Technique    | Technique ID | How It Helps                                                 |
 | ---------------------------------------- | ------------------------- | ------------ | ------------------------------------------------------------ |
