@@ -46,8 +46,10 @@
           "Status": "Enabled"
         },
         "NotificationConfiguration": {
-  "EventBridgeConfiguration": {}
-},
+          "EventBridgeConfiguration": {
+            "EventBridgeEnabled": true
+          }
+        },
         "PublicAccessBlockConfiguration": {
           "BlockPublicAcls": true,
           "BlockPublicPolicy": true,
@@ -137,7 +139,6 @@
               "Effect": "Allow",
               "Principal": { "Service": "logging.s3.amazonaws.com" },
               "Action": ["s3:PutObject","s3:PutObjectAcl"],
-              "DeletionPolicy": "Retain",
               "Resource": { "Fn::Join": ["", [{ "Fn::GetAtt": ["LoggingBucket", "Arn"] }, "/*"]]}
             }
           ]
