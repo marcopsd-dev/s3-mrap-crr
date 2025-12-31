@@ -1,22 +1,23 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Main S3 Bucket + Logging + IAM Role",
+  "Description": "Main S3 Bucket + Logging + IAM Role with EventBridge and Admin Management",
   "Parameters": {
     "AdminRoleARN": {
       "Type": "String",
-      "Description": "!!!! Admin IAM Role ARN needed"
+      "Description": "Admin IAM Role ARN used by the parent stack to manage these resources"
     }
   },
   "Resources": {
     "MainS3KmsKey": {
       "Type": "AWS::KMS::Key",
       "Properties": {
-        "Description": "!!!! KMS key for main S3 bucket",
+        "Description": "KMS key for main S3 bucket",
         "EnableKeyRotation": true,
         "KeyPolicy": {
           "Version": "2012-10-17",
           "Statement": [
             {
+              "Sid": "AllowAdminManagement",
               "Effect": "Allow",
               "Principal": { "AWS": { "Ref": "AdminRoleARN" } },
               "Action": "kms:*",
@@ -35,10 +36,18 @@
         "ObjectLockConfiguration": {
           "ObjectLockEnabled": "Enabled",
           "Rule": {
-            "DefaultRetention": { "Mode": "COMPLIANCE", "Days": 30 }
+            "DefaultRetention": {
+              "Mode": "COMPLIANCE",
+              "Days": 30
+            }
           }
         },
-        "VersioningConfiguration": { "Status": "Enabled" },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "NotificationConfiguration": {
+  "EventBridgeConfiguration": {}
+},
         "PublicAccessBlockConfiguration": {
           "BlockPublicAcls": true,
           "BlockPublicPolicy": true,
@@ -64,11 +73,12 @@
     "LoggingKmsKey": {
       "Type": "AWS::KMS::Key",
       "Properties": {
-        "Description": "!!!! KMS key for logging bucket",
+        "Description": "KMS key for logging bucket",
         "KeyPolicy": {
           "Version": "2012-10-17",
           "Statement": [
             {
+              "Sid": "AllowAdminManagement",
               "Effect": "Allow",
               "Principal": { "AWS": { "Ref": "AdminRoleARN" } },
               "Action": "kms:*",
@@ -92,7 +102,9 @@
         "ObjectLockEnabled": true,
         "ObjectLockConfiguration": {
           "ObjectLockEnabled": "Enabled",
-          "Rule": { "DefaultRetention": { "Mode": "COMPLIANCE", "Days": 30 } }
+          "Rule": {
+            "DefaultRetention": { "Mode": "COMPLIANCE", "Days": 30 }
+          }
         },
         "VersioningConfiguration": { "Status": "Enabled" },
         "PublicAccessBlockConfiguration": {
@@ -124,7 +136,8 @@
               "Sid": "AllowS3LogDelivery",
               "Effect": "Allow",
               "Principal": { "Service": "logging.s3.amazonaws.com" },
-              "Action": "s3:PutObject",
+              "Action": ["s3:PutObject","s3:PutObjectAcl"],
+              "DeletionPolicy": "Retain",
               "Resource": { "Fn::Join": ["", [{ "Fn::GetAtt": ["LoggingBucket", "Arn"] }, "/*"]]}
             }
           ]
@@ -182,6 +195,14 @@
     "LoggingBucketARN": {
       "Value": { "Fn::GetAtt": ["LoggingBucket", "Arn"] },
       "Export": { "Name": "LoggingBucketARN" }
+    },
+    "MainS3KmsKeyARN": {
+      "Value": { "Fn::GetAtt": ["MainS3KmsKey", "Arn"] },
+      "Export": { "Name": "MainS3KmsKeyARN" }
+    },
+    "LoggingKmsKeyARN": {
+      "Value": { "Fn::GetAtt": ["LoggingKmsKey", "Arn"] },
+      "Export": { "Name": "LoggingKmsKeyARN" }
     },
     "S3AccessRoleARN": {
       "Value": { "Ref": "S3AccessRole" },
