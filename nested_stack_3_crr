@@ -2,14 +2,10 @@
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "CRR & MRAP configuration",
   "Parameters": {
-    "SourceBucketARN": {
-      "Type": "String",
-      "Description": "!!!! Main bucket ARN from Stack 1"
-    },
-    "DestinationBucketARN": {
-      "Type": "String",
-      "Description": "!!!! Destination bucket ARN needed for replication"
-    }
+    "SourceBucketARN": { "Type": "String" },
+    "DestinationBucketARN": { "Type": "String" },
+    "SourceKmsKeyARN": { "Type": "String" },
+    "DestinationKmsKeyARN": { "Type": "String" }
   },
   "Resources": {
     "ReplicationRole": {
@@ -21,9 +17,7 @@
           "Statement": [
             {
               "Effect": "Allow",
-              "Principal": {
-                "Service": "s3.amazonaws.com"
-              },
+              "Principal": { "Service": "s3.amazonaws.com" },
               "Action": "sts:AssumeRole"
             }
           ]
@@ -35,36 +29,34 @@
               "Version": "2012-10-17",
               "Statement": [
                 {
+                  "Sid": "SourceBucketPermissions",
                   "Effect": "Allow",
-                  "Action": [
-                    "s3:GetReplicationConfiguration",
-                    "s3:ListBucket"
-                  ],
-                  "Resource": [
-                    { "Ref": "SourceBucketARN" }
-                  ]
+                  "Action": ["s3:GetReplicationConfiguration", "s3:ListBucket"],
+                  "Resource": { "Ref": "SourceBucketARN" }
                 },
                 {
+                  "Sid": "SourceObjectPermissions",
                   "Effect": "Allow",
-                  "Action": [
-                    "s3:GetObjectVersion",
-                    "s3:GetObjectVersionAcl",
-                    "s3:GetObjectVersionTagging"
-                  ],
-                  "Resource": [
-                    { "Fn::Join": ["", [{ "Ref": "SourceBucketARN" }, "/*"]] }
-                  ]
+                  "Action": ["s3:GetObjectVersion", "s3:GetObjectVersionAcl", "s3:GetObjectVersionTagging"],
+                  "Resource": { "Fn::Join": ["", [{ "Ref": "SourceBucketARN" }, "/*"]] }
                 },
                 {
+                  "Sid": "DestinationObjectPermissions",
                   "Effect": "Allow",
-                  "Action": [
-                    "s3:ReplicateObject",
-                    "s3:ReplicateDelete",
-                    "s3:ReplicateTags"
-                  ],
-                  "Resource": [
-                    { "Fn::Join": ["", [{ "Ref": "DestinationBucketARN" }, "/*"]] }
-                  ]
+                  "Action": ["s3:ReplicateObject", "s3:ReplicateDelete", "s3:ReplicateTags"],
+                  "Resource": { "Fn::Join": ["", [{ "Ref": "DestinationBucketARN" }, "/*"]] }
+                },
+                {
+                  "Sid": "SourceKMSPermissions",
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt"],
+                  "Resource": { "Ref": "SourceKmsKeyARN" }
+                },
+                {
+                  "Sid": "DestinationKMSPermissions",
+                  "Effect": "Allow",
+                  "Action": ["kms:Encrypt", "kms:GenerateDataKey"],
+                  "Resource": { "Ref": "DestinationKmsKeyARN" }
                 }
               ]
             }
