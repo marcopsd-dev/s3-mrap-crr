@@ -5,6 +5,24 @@
     "AdminRoleARN": {
       "Type": "String",
       "Description": "Admin IAM Role ARN used by the parent stack to manage these resources"
+    },
+    "MainBucketName": {
+      "Type": "String",
+      "Description": "Name for the main S3 bucket (must be globally unique)",
+      "Default": ""
+    },
+    "LoggingBucketName": {
+      "Type": "String",
+      "Description": "Name for the logging S3 bucket (must be globally unique)",
+      "Default": ""
+    }
+  },
+  "Conditions": {
+    "HasMainBucketName": {
+      "Fn::Not": [{ "Fn::Equals": [{ "Ref": "MainBucketName" }, ""] }]
+    },
+    "HasLoggingBucketName": {
+      "Fn::Not": [{ "Fn::Equals": [{ "Ref": "LoggingBucketName" }, ""] }]
     }
   },
   "Resources": {
@@ -17,6 +35,15 @@
           "Version": "2012-10-17",
           "Statement": [
             {
+              "Sid": "AllowRootAccountAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": { "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root" }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
               "Sid": "AllowAdminManagement",
               "Effect": "Allow",
               "Principal": { "AWS": { "Ref": "AdminRoleARN" } },
@@ -27,11 +54,112 @@
         }
       }
     },
+    "LoggingBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": {
+          "Fn::If": [
+            "HasLoggingBucketName",
+            { "Ref": "LoggingBucketName" },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
+        "ObjectLockEnabled": true,
+        "ObjectLockConfiguration": {
+          "ObjectLockEnabled": "Enabled",
+          "Rule": {
+            "DefaultRetention": { "Mode": "COMPLIANCE", "Days": 90 }
+          }
+        },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": { "Fn::GetAtt": ["LoggingKmsKey", "Arn"] }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "LoggingKmsKey": {
+      "Type": "AWS::KMS::Key",
+      "Properties": {
+        "Description": "KMS key for logging bucket",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowRootAccountAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": { "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root" }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowAdminManagement",
+              "Effect": "Allow",
+              "Principal": { "AWS": { "Ref": "AdminRoleARN" } },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowS3LoggingServiceToEncrypt",
+              "Effect": "Allow",
+              "Principal": { "Service": "logging.s3.amazonaws.com" },
+              "Action": ["kms:Encrypt", "kms:GenerateDataKey"],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    "LoggingBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "LoggingBucket" },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowS3LogDelivery",
+              "Effect": "Allow",
+              "Principal": { "Service": "logging.s3.amazonaws.com" },
+              "Action": ["s3:PutObject", "s3:PutObjectAcl"],
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [{ "Fn::GetAtt": ["LoggingBucket", "Arn"] }, "/*"]
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
     "MainS3Bucket": {
       "Type": "AWS::S3::Bucket",
+      "DependsOn": ["LoggingBucket", "LoggingBucketPolicy"],
       "DeletionPolicy": "Retain",
       "Properties": {
-        "BucketName": "!!!! Main bucket name needed",
+        "BucketName": {
+          "Fn::If": [
+            "HasMainBucketName",
+            { "Ref": "MainBucketName" },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
         "ObjectLockEnabled": true,
         "ObjectLockConfiguration": {
           "ObjectLockEnabled": "Enabled",
@@ -72,79 +200,6 @@
         }
       }
     },
-    "LoggingKmsKey": {
-      "Type": "AWS::KMS::Key",
-      "Properties": {
-        "Description": "KMS key for logging bucket",
-        "KeyPolicy": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Sid": "AllowAdminManagement",
-              "Effect": "Allow",
-              "Principal": { "AWS": { "Ref": "AdminRoleARN" } },
-              "Action": "kms:*",
-              "Resource": "*"
-            },
-            {
-              "Sid": "AllowS3LoggingServiceToEncrypt",
-              "Effect": "Allow",
-              "Principal": { "Service": "logging.s3.amazonaws.com" },
-              "Action": ["kms:Encrypt", "kms:GenerateDataKey"],
-              "Resource": "*"
-            }
-          ]
-        }
-      }
-    },
-    "LoggingBucket": {
-      "Type": "AWS::S3::Bucket",
-      "Properties": {
-        "BucketName": "!!!! Logging bucket name needed",
-        "ObjectLockEnabled": true,
-        "ObjectLockConfiguration": {
-          "ObjectLockEnabled": "Enabled",
-          "Rule": {
-            "DefaultRetention": { "Mode": "COMPLIANCE", "Days": 30 }
-          }
-        },
-        "VersioningConfiguration": { "Status": "Enabled" },
-        "PublicAccessBlockConfiguration": {
-          "BlockPublicAcls": true,
-          "BlockPublicPolicy": true,
-          "IgnorePublicAcls": true,
-          "RestrictPublicBuckets": true
-        },
-        "BucketEncryption": {
-          "ServerSideEncryptionConfiguration": [
-            {
-              "ServerSideEncryptionByDefault": {
-                "SSEAlgorithm": "aws:kms",
-                "KMSMasterKeyID": { "Fn::GetAtt": ["LoggingKmsKey", "Arn"] }
-              }
-            }
-          ]
-        }
-      }
-    },
-    "LoggingBucketPolicy": {
-      "Type": "AWS::S3::BucketPolicy",
-      "Properties": {
-        "Bucket": { "Ref": "LoggingBucket" },
-        "PolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Sid": "AllowS3LogDelivery",
-              "Effect": "Allow",
-              "Principal": { "Service": "logging.s3.amazonaws.com" },
-              "Action": ["s3:PutObject","s3:PutObjectAcl"],
-              "Resource": { "Fn::Join": ["", [{ "Fn::GetAtt": ["LoggingBucket", "Arn"] }, "/*"]]}
-            }
-          ]
-        }
-      }
-    },
     "S3AccessRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
@@ -170,15 +225,34 @@
                   "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
                   "Resource": [
                     { "Fn::GetAtt": ["MainS3Bucket", "Arn"] },
-                    { "Fn::Join": ["", [{ "Fn::GetAtt": ["MainS3Bucket", "Arn"] }, "/*"]]}
+                    {
+                      "Fn::Join": [
+                        "",
+                        [{ "Fn::GetAtt": ["MainS3Bucket", "Arn"] }, "/*"]
+                      ]
+                    }
                   ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:GenerateDataKey",
+                    "kms:DescribeKey"
+                  ],
+                  "Resource": { "Fn::GetAtt": ["MainS3KmsKey", "Arn"] }
                 },
                 {
                   "Effect": "Deny",
                   "Action": ["s3:DeleteObject", "s3:DeleteBucket"],
                   "Resource": [
                     { "Fn::GetAtt": ["MainS3Bucket", "Arn"] },
-                    { "Fn::Join": ["", [{ "Fn::GetAtt": ["MainS3Bucket", "Arn"] }, "/*"]]}
+                    {
+                      "Fn::Join": [
+                        "",
+                        [{ "Fn::GetAtt": ["MainS3Bucket", "Arn"] }, "/*"]
+                      ]
+                    }
                   ]
                 }
               ]
@@ -193,9 +267,17 @@
       "Value": { "Fn::GetAtt": ["MainS3Bucket", "Arn"] },
       "Export": { "Name": "MainS3BucketARN" }
     },
+    "MainS3BucketName": {
+      "Value": { "Ref": "MainS3Bucket" },
+      "Export": { "Name": "MainS3BucketName" }
+    },
     "LoggingBucketARN": {
       "Value": { "Fn::GetAtt": ["LoggingBucket", "Arn"] },
       "Export": { "Name": "LoggingBucketARN" }
+    },
+    "LoggingBucketName": {
+      "Value": { "Ref": "LoggingBucket" },
+      "Export": { "Name": "LoggingBucketName" }
     },
     "MainS3KmsKeyARN": {
       "Value": { "Fn::GetAtt": ["MainS3KmsKey", "Arn"] },
@@ -206,7 +288,7 @@
       "Export": { "Name": "LoggingKmsKeyARN" }
     },
     "S3AccessRoleARN": {
-      "Value": { "Ref": "S3AccessRole" },
+      "Value": { "Fn::GetAtt": ["S3AccessRole", "Arn"] },
       "Export": { "Name": "S3AccessRoleARN" }
     }
   }
