@@ -1,0 +1,389 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Standalone Replica S3 Bucket with Object Lock, Versioning, KMS encryption, and security policies (Deploy in secondary region)",
+  "Parameters": {
+    "ReplicaBucketName": {
+      "Type": "String",
+      "Description": "Name for the replica S3 bucket (must be globally unique, leave empty for auto-generation)",
+      "Default": ""
+    },
+    "AdminRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the IAM Admin role for management (PLACEHOLDER: Replace with actual ARN)",
+      "Default": "arn:aws:iam::123456789012:role/REPLACE-WITH-ADMIN-ROLE",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    }
+  },
+  "Conditions": {
+    "HasReplicaBucketName": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "ReplicaBucketName"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "ReplicaKmsKey": {
+      "Type": "AWS::KMS::Key",
+      "Properties": {
+        "Description": "KMS key for replica S3 bucket encryption",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*",
+              "Condition": {}
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*",
+              "Condition": {}
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "ReplicaBucketEncryption"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "BucketType",
+            "Value": "Replica"
+          },
+          {
+            "Key": "Region",
+            "Value": {
+              "Ref": "AWS::Region"
+            }
+          }
+        ]
+      }
+    },
+    "ReplicaKmsKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": {
+          "Fn::Sub": "alias/s3-replica-${AWS::StackName}"
+        },
+        "TargetKeyId": {
+          "Ref": "ReplicaKmsKey"
+        }
+      }
+    },
+    "ReplicaBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": {
+          "Fn::If": [
+            "HasReplicaBucketName",
+            {
+              "Ref": "ReplicaBucketName"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "ObjectLockEnabled": true,
+        "ObjectLockConfiguration": {
+          "ObjectLockEnabled": "Enabled",
+          "Rule": {
+            "DefaultRetention": {
+              "Mode": "COMPLIANCE",
+              "Days": 30
+            }
+          }
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "NotificationConfiguration": {
+          "EventBridgeConfiguration": {
+            "EventBridgeEnabled": true
+          }
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "ReplicaKmsKey",
+                    "Arn"
+                  ]
+                }
+              },
+              "BucketKeyEnabled": true
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DeleteOldVersions",
+              "Status": "Enabled",
+              "NoncurrentVersionExpirationInDays": 90,
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "ReplicationDestination"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "BucketType",
+            "Value": "Replica"
+          },
+          {
+            "Key": "Region",
+            "Value": {
+              "Ref": "AWS::Region"
+            }
+          }
+        ]
+      }
+    },
+    "ReplicaBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "ReplicaBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "ReplicaBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ReplicaBucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "ReplicaBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ReplicaBucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "ReplicaBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ReplicaBucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ReplicaBucketARN": {
+      "Description": "ARN of the replica S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "ReplicaBucket",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaBucketARN"
+        }
+      }
+    },
+    "ReplicaBucketName": {
+      "Description": "Name of the replica S3 bucket",
+      "Value": {
+        "Ref": "ReplicaBucket"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaBucketName"
+        }
+      }
+    },
+    "ReplicaBucketRegion": {
+      "Description": "Region where the replica bucket is deployed",
+      "Value": {
+        "Ref": "AWS::Region"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaBucketRegion"
+        }
+      }
+    },
+    "ReplicaBucketDomainName": {
+      "Description": "Domain name of the replica S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "ReplicaBucket",
+          "DomainName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaBucketDomainName"
+        }
+      }
+    },
+    "ReplicaKmsKeyARN": {
+      "Description": "ARN of the KMS key for replica bucket encryption",
+      "Value": {
+        "Fn::GetAtt": [
+          "ReplicaKmsKey",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaKmsKeyARN"
+        }
+      }
+    },
+    "ReplicaKmsKeyId": {
+      "Description": "ID of the KMS key for replica bucket encryption",
+      "Value": {
+        "Ref": "ReplicaKmsKey"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaKmsKeyId"
+        }
+      }
+    },
+    "ReplicaKmsKeyAlias": {
+      "Description": "Alias of the KMS key for replica bucket encryption",
+      "Value": {
+        "Ref": "ReplicaKmsKeyAlias"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicaKmsKeyAlias"
+        }
+      }
+    }
+  }
+}
