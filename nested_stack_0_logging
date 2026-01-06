@@ -1,0 +1,596 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Stack0 - Logging Infrastructure: Logging Bucket, KMS Key, CloudTrail Role, and Security Policies (Nested Stack - Deploy First)",
+  "Parameters": {
+    "AdminRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the IAM Admin role for management",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    },
+    "LoggingBucketName": {
+      "Type": "String",
+      "Description": "Name for the logging S3 bucket (must be globally unique, leave empty for auto-generation)",
+      "Default": ""
+    }
+  },
+  "Conditions": {
+    "HasLoggingBucketName": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "LoggingBucketName"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "LoggingKmsKey": {
+      "Type": "AWS::KMS::Key",
+      "Properties": {
+        "Description": "KMS key for logging bucket encryption",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowS3LoggingServiceToEncrypt",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "logging.s3.amazonaws.com"
+              },
+              "Action": [
+                "kms:Encrypt",
+                "kms:GenerateDataKey"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowCloudTrailServiceToEncrypt",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": [
+                "kms:GenerateDataKey",
+                "kms:Decrypt",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*",
+              "Condition": {
+                "StringLike": {
+                  "kms:EncryptionContext:aws:cloudtrail:arn": {
+                    "Fn::Sub": "arn:aws:cloudtrail:*:${AWS::AccountId}:trail/*"
+                  }
+                }
+              }
+            },
+            {
+              "Sid": "AllowCloudWatchLogsToEncrypt",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "logs.amazonaws.com"
+              },
+              "Action": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncryptFrom",
+                "kms:ReEncryptTo",
+                "kms:GenerateDataKey",
+                "kms:CreateGrant",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*",
+              "Condition": {
+                "ArnLike": {
+                  "kms:EncryptionContext:aws:logs:arn": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+                  }
+                }
+              }
+            },
+            {
+              "Sid": "AllowCloudTrailRoleToUseKey",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "CloudTrailRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": [
+                "kms:Decrypt",
+                "kms:GenerateDataKey",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "LoggingBucketEncryption"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack0-Logging"
+          }
+        ]
+      }
+    },
+    "LoggingKmsKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": {
+          "Fn::Sub": "alias/s3-logging-${AWS::StackName}"
+        },
+        "TargetKeyId": {
+          "Ref": "LoggingKmsKey"
+        }
+      }
+    },
+    "LoggingBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": {
+          "Fn::If": [
+            "HasLoggingBucketName",
+            {
+              "Ref": "LoggingBucketName"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "ObjectLockEnabled": true,
+        "ObjectLockConfiguration": {
+          "ObjectLockEnabled": "Enabled",
+          "Rule": {
+            "DefaultRetention": {
+              "Mode": "COMPLIANCE",
+              "Days": 90
+            }
+          }
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "LoggingKmsKey",
+                    "Arn"
+                  ]
+                }
+              },
+              "BucketKeyEnabled": true
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DeleteOldLogs",
+              "Status": "Enabled",
+              "NoncurrentVersionExpirationInDays": 365,
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "CentralizedLogging"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack0-Logging"
+          }
+        ]
+      }
+    },
+    "LoggingBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "LoggingBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "LoggingBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "LoggingBucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "LoggingBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "LoggingBucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "LoggingBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "LoggingBucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Sid": "AllowS3LogDelivery",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "logging.s3.amazonaws.com"
+              },
+              "Action": [
+                "s3:PutObject",
+                "s3:PutObjectAcl"
+              ],
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "LoggingBucket",
+                        "Arn"
+                      ]
+                    },
+                    "/access-logs-*/*"
+                  ]
+                ]
+              }
+            },
+            {
+              "Sid": "AWSCloudTrailAclCheck",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": "s3:GetBucketAcl",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "LoggingBucket",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/*"
+                  }
+                }
+              }
+            },
+            {
+              "Sid": "AWSCloudTrailWrite",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": "s3:PutObject",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "LoggingBucket",
+                        "Arn"
+                      ]
+                    },
+                    "/cloudtrail-logs/*"
+                  ]
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control",
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/*"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "CloudTrailRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "CloudTrailRole-${AWS::StackName}"
+        },
+        "Description": "IAM role for CloudTrail to write to CloudWatch Logs",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "CloudTrailCloudWatchLogsPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "CreateLogStreamAndPutLogEvents",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/cloudtrail/*:log-stream:*"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "CloudTrailLogging"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack0-Logging"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "LoggingBucketARN": {
+      "Description": "ARN of the logging S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "LoggingBucket",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingBucketARN"
+        }
+      }
+    },
+    "LoggingBucketName": {
+      "Description": "Name of the logging S3 bucket",
+      "Value": {
+        "Ref": "LoggingBucket"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingBucketName"
+        }
+      }
+    },
+    "LoggingBucketDomainName": {
+      "Description": "Domain name of the logging S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "LoggingBucket",
+          "DomainName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingBucketDomainName"
+        }
+      }
+    },
+    "LoggingKmsKeyARN": {
+      "Description": "ARN of the KMS key for logging bucket encryption",
+      "Value": {
+        "Fn::GetAtt": [
+          "LoggingKmsKey",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingKmsKeyARN"
+        }
+      }
+    },
+    "LoggingKmsKeyId": {
+      "Description": "ID of the KMS key for logging bucket encryption",
+      "Value": {
+        "Ref": "LoggingKmsKey"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingKmsKeyId"
+        }
+      }
+    },
+    "LoggingKmsKeyAlias": {
+      "Description": "Alias of the KMS key for logging bucket encryption",
+      "Value": {
+        "Ref": "LoggingKmsKeyAlias"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingKmsKeyAlias"
+        }
+      }
+    },
+    "CloudTrailRoleARN": {
+      "Description": "ARN of the CloudTrail IAM role for CloudWatch Logs",
+      "Value": {
+        "Fn::GetAtt": [
+          "CloudTrailRole",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailRoleARN"
+        }
+      }
+    },
+    "CloudTrailRoleName": {
+      "Description": "Name of the CloudTrail IAM role",
+      "Value": {
+        "Ref": "CloudTrailRole"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailRoleName"
+        }
+      }
+    }
+  }
+}
