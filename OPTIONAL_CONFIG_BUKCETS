@@ -1,0 +1,225 @@
+{
+  "OptionalConfigurations": {
+    "IntelligentTiering": {
+      "Description": "Add this to ReplicaBucket.Properties for automatic storage class transitions and cost optimization",
+      "Location": "ReplicaBucket.Properties",
+      "CostSavings": {
+        "ArchiveAccessTier": "68% savings after 90 days",
+        "DeepArchiveAccessTier": "95% savings after 180 days"
+      },
+      "Note": "Objects must use Intelligent-Tiering storage class on upload",
+      "Configuration": {
+        "IntelligentTieringConfigurations": [
+          {
+            "Id": "EntireBucketIntelligentTiering",
+            "Status": "Enabled",
+            "Tierings": [
+              {
+                "Days": 90,
+                "AccessTier": "ARCHIVE_ACCESS"
+              },
+              {
+                "Days": 180,
+                "AccessTier": "DEEP_ARCHIVE_ACCESS"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "EnhancedKMSSecurityConditions": {
+      "Description": "Add these conditions to KMS Key Policy statements for enhanced security",
+      "Location": "ReplicaKmsKey.Properties.KeyPolicy.Statement",
+      "Warning": "Test conditions carefully to avoid locking yourself out!",
+      "Options": {
+        "RequireMFAForAdmin": {
+          "Description": "Admin must use MFA to perform KMS operations",
+          "AddTo": "AllowAdminRoleFullAccess statement",
+          "Configuration": {
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              }
+            }
+          }
+        },
+        "RestrictToSpecificVPC": {
+          "Description": "KMS operations only allowed from specified VPC",
+          "AddTo": "AllowAdminRoleFullAccess statement",
+          "Configuration": {
+            "Condition": {
+              "StringEquals": {
+                "aws:SourceVpc": "vpc-12345678"
+              }
+            }
+          },
+          "Note": "Replace vpc-12345678 with your actual VPC ID"
+        },
+        "RestrictByIPAddress": {
+          "Description": "KMS operations only allowed from corporate IP range",
+          "AddTo": "AllowAdminRoleFullAccess statement",
+          "Configuration": {
+            "Condition": {
+              "IpAddress": {
+                "aws:SourceIp": [
+                  "203.0.113.0/24"
+                ]
+              }
+            }
+          },
+          "Note": "Replace with your actual IP range"
+        },
+        "CombineMFAandVPC": {
+          "Description": "Requires BOTH MFA AND VPC access",
+          "AddTo": "AllowAdminRoleFullAccess statement",
+          "Configuration": {
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              },
+              "StringEquals": {
+                "aws:SourceVpc": "vpc-12345678"
+              }
+            }
+          },
+          "Note": "Most secure option - combines multiple conditions"
+        }
+      }
+    },
+    "ReplicationRoleAccess": {
+      "Description": "Add this statement after parent stack creates the ReplicationRole",
+      "Location": "ReplicaKmsKey.Properties.KeyPolicy.Statement (append to array)",
+      "When": "After parent stack deployment",
+      "Note": "This will be handled automatically if using the update script",
+      "Configuration": {
+        "Sid": "AllowReplicationRoleToEncrypt",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::ACCOUNT_ID:role/ReplicationRole-NAME"
+        },
+        "Action": [
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
+        ],
+        "Resource": "*"
+      },
+      "Instructions": [
+        "1. Deploy parent stack in primary region",
+        "2. Get ReplicationRole ARN from parent stack outputs",
+        "3. Replace ACCOUNT_ID and ReplicationRole-NAME in the Principal",
+        "4. Add this statement to ReplicaKmsKey.KeyPolicy.Statement array",
+        "5. Update the replica stack"
+      ]
+    },
+    "ExampleWithAllOptionalFeatures": {
+      "Description": "Complete ReplicaKmsKey KeyPolicy with all optional security conditions and replication role",
+      "FullConfiguration": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Sid": "AllowRootAccountFullAccess",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": {
+                "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+              }
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+          },
+          {
+            "Sid": "AllowAdminRoleFullAccessWithMFAAndVPC",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": {
+                "Ref": "AdminRoleARN"
+              }
+            },
+            "Action": "kms:*",
+            "Resource": "*",
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              },
+              "StringEquals": {
+                "aws:SourceVpc": "vpc-12345678"
+              }
+            }
+          },
+          {
+            "Sid": "AllowReplicationRoleToEncrypt",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::123456789012:role/ReplicationRole-stack2"
+            },
+            "Action": [
+              "kms:Encrypt",
+              "kms:GenerateDataKey",
+              "kms:DescribeKey"
+            ],
+            "Resource": "*"
+          }
+        ]
+      }
+    },
+    "ExampleReplicaBucketWithIntelligentTiering": {
+      "Description": "Complete ReplicaBucket configuration with Intelligent-Tiering enabled",
+      "Note": "This shows only the additions - merge with existing ReplicaBucket.Properties",
+      "PartialConfiguration": {
+        "IntelligentTieringConfigurations": [
+          {
+            "Id": "EntireBucketIntelligentTiering",
+            "Status": "Enabled",
+            "Tierings": [
+              {
+                "Days": 90,
+                "AccessTier": "ARCHIVE_ACCESS"
+              },
+              {
+                "Days": 180,
+                "AccessTier": "DEEP_ARCHIVE_ACCESS"
+              }
+            ]
+          }
+        ]
+      },
+      "AddTo": "ReplicaBucket.Properties (same level as VersioningConfiguration, LifecycleConfiguration, etc.)"
+    }
+  },
+  "UsageExamples": {
+    "Example1_AddIntelligentTiering": {
+      "Step": "Add Intelligent-Tiering to reduce storage costs",
+      "Modification": "In ReplicaBucket.Properties, add the IntelligentTieringConfigurations block after LifecycleConfiguration",
+      "Result": "Objects automatically move to cheaper storage tiers after 90 and 180 days of no access"
+    },
+    "Example2_RequireMFAForAdmin": {
+      "Step": "Require MFA for admin KMS operations",
+      "Modification": "In ReplicaKmsKey.KeyPolicy.Statement[1] (AllowAdminRoleFullAccess), add the MFA Condition",
+      "Result": "Admins must authenticate with MFA to use the KMS key"
+    },
+    "Example3_AddReplicationRoleAfterDeployment": {
+      "Step": "Grant replication role access after parent stack creates it",
+      "Modification": "Add the ReplicationRoleAccess statement to ReplicaKmsKey.KeyPolicy.Statement array",
+      "Result": "Replication role can encrypt objects in the replica bucket"
+    }
+  },
+  "DeploymentWorkflow": {
+    "InitialDeployment": [
+      "1. Deploy replica stack WITHOUT ReplicationRoleAccess statement",
+      "2. Stack creates: ReplicaBucket, ReplicaKmsKey, ReplicaBucketPolicy",
+      "3. Note the outputs: ReplicaBucketARN, ReplicaKmsKeyARN"
+    ],
+    "AfterParentStackDeployment": [
+      "1. Parent stack creates ReplicationRole",
+      "2. Get ReplicationRole ARN from parent stack outputs",
+      "3. Update replica stack's KMS key policy with ReplicationRoleAccess statement",
+      "4. Redeploy replica stack (CloudFormation update)"
+    ],
+    "OptionalEnhancements": [
+      "1. Add Intelligent-Tiering for cost optimization",
+      "2. Add MFA/VPC conditions for enhanced security",
+      "3. Customize lifecycle rules based on retention requirements"
+    ]
+  }
+}
