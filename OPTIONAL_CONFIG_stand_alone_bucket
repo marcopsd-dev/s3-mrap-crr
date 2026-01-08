@@ -1,13 +1,20 @@
 {
   "OptionalConfigurations": {
+    "Description": "Optional enhancements for all S3 buckets in the multi-region architecture (Replica, Main, and Logging buckets)",
+    
     "IntelligentTiering": {
-      "Description": "Add this to ReplicaBucket.Properties for automatic storage class transitions and cost optimization",
-      "Location": "ReplicaBucket.Properties",
+      "Description": "Automatic storage class transitions for cost optimization - applicable to all buckets",
+      "ApplicableTo": ["ReplicaBucket", "MainS3Bucket", "LoggingBucket"],
       "CostSavings": {
-        "ArchiveAccessTier": "68% savings after 90 days",
-        "DeepArchiveAccessTier": "95% savings after 180 days"
+        "ArchiveAccessTier": "68% savings after 90 days of no access",
+        "DeepArchiveAccessTier": "95% savings after 180 days of no access"
       },
-      "Note": "Objects must use Intelligent-Tiering storage class on upload",
+      "Requirements": {
+        "ObjectLockCompatibility": "Fully compatible with Object Lock COMPLIANCE mode",
+        "VersioningCompatibility": "Fully compatible with versioning",
+        "ReplicationCompatibility": "Fully compatible with CRR - replicated objects maintain storage class"
+      },
+      "HowToUse": "Add this to any bucket's Properties section (same level as VersioningConfiguration)",
       "Configuration": {
         "IntelligentTieringConfigurations": [
           {
@@ -25,41 +32,135 @@
             ]
           }
         ]
+      },
+      "Notes": [
+        "Objects must be uploaded with INTELLIGENT_TIERING storage class to benefit",
+        "Minimum object size: 128KB (smaller objects stay in Frequent Access)",
+        "No retrieval fees for Frequent/Infrequent Access tiers",
+        "Archive tiers require restoration before access (3-5 hours for Archive, 12 hours for Deep Archive)",
+        "Monitoring fee: $0.0025 per 1,000 objects per month",
+        "Recommended for: Long-term storage with unpredictable access patterns"
+      ],
+      "ApplyTo": {
+        "ReplicaBucket": "Recommended for infrequently accessed disaster recovery data",
+        "MainS3Bucket": "Recommended if access patterns vary significantly",
+        "LoggingBucket": "Highly recommended - logs are rarely accessed after 30-90 days"
       }
     },
+    
     "EnhancedKMSSecurityConditions": {
-      "Description": "Add these conditions to KMS Key Policy statements for enhanced security",
-      "Location": "ReplicaKmsKey.Properties.KeyPolicy.Statement",
-      "Warning": "Test conditions carefully to avoid locking yourself out!",
+      "Description": "Additional security conditions for KMS key policies - applicable to all KMS keys",
+      "ApplicableTo": ["ReplicaKmsKey", "MainS3KmsKey", "LoggingKmsKey"],
+      "Warning": "Test conditions in a non-production environment first to avoid lockouts!",
+      "HowToUse": "Add Condition blocks to the AllowAdminRoleFullAccess statement in any KMS Key Policy",
+      
       "Options": {
         "RequireMFAForAdmin": {
           "Description": "Admin must use MFA to perform KMS operations",
-          "AddTo": "AllowAdminRoleFullAccess statement",
+          "SecurityLevel": "High",
+          "ApplicableTo": "AllowAdminRoleFullAccess statement in any KMS key",
           "Configuration": {
             "Condition": {
               "Bool": {
                 "aws:MultiFactorAuthPresent": "true"
               }
             }
-          }
+          },
+          "Impact": "Admins must authenticate with MFA device to use KMS keys",
+          "Recommendation": "Highly recommended for production environments"
         },
+        
         "RestrictToSpecificVPC": {
           "Description": "KMS operations only allowed from specified VPC",
-          "AddTo": "AllowAdminRoleFullAccess statement",
+          "SecurityLevel": "High",
+          "ApplicableTo": "AllowAdminRoleFullAccess statement in any KMS key",
           "Configuration": {
             "Condition": {
               "StringEquals": {
-                "aws:SourceVpc": "vpc-12345678"
+                "aws:SourceVpc": "vpc-XXXXXXXX"
               }
             }
           },
-          "Note": "Replace vpc-12345678 with your actual VPC ID"
+          "Placeholders": {
+            "vpc-XXXXXXXX": "Replace with your VPC ID (e.g., vpc-0a1b2c3d4e5f6g7h8)"
+          },
+          "Impact": "All KMS operations must originate from the specified VPC",
+          "Recommendation": "Use if all access is from within a VPC",
+          "Note": "Not compatible with Lambda@Edge or CloudFront"
         },
+        
         "RestrictByIPAddress": {
           "Description": "KMS operations only allowed from corporate IP range",
-          "AddTo": "AllowAdminRoleFullAccess statement",
+          "SecurityLevel": "Medium-High",
+          "ApplicableTo": "AllowAdminRoleFullAccess statement in any KMS key",
           "Configuration": {
             "Condition": {
+              "IpAddress": {
+                "aws:SourceIp": [
+                  "203.0.113.0/24",
+                  "198.51.100.0/24"
+                ]
+              }
+            }
+          },
+          "Placeholders": {
+            "203.0.113.0/24": "Replace with your corporate IP range",
+            "198.51.100.0/24": "Add multiple ranges as needed"
+          },
+          "Impact": "All KMS operations must originate from specified IP ranges",
+          "Recommendation": "Use for on-premises access or known IP ranges",
+          "Note": "May cause issues if IP addresses change (e.g., remote workers, cloud services)"
+        },
+        
+        "RestrictByTime": {
+          "Description": "KMS operations only allowed during business hours",
+          "SecurityLevel": "Medium",
+          "ApplicableTo": "AllowAdminRoleFullAccess statement in any KMS key",
+          "Configuration": {
+            "Condition": {
+              "DateGreaterThan": {
+                "aws:CurrentTime": "2024-01-01T00:00:00Z"
+              },
+              "DateLessThan": {
+                "aws:CurrentTime": "2030-12-31T23:59:59Z"
+              }
+            }
+          },
+          "Note": "Adjust dates for time-based restrictions or business hours",
+          "Recommendation": "Useful for temporary access or maintenance windows"
+        },
+        
+        "CombineMFAandVPC": {
+          "Description": "Requires BOTH MFA AND VPC access",
+          "SecurityLevel": "Very High",
+          "ApplicableTo": "AllowAdminRoleFullAccess statement in any KMS key",
+          "Configuration": {
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              },
+              "StringEquals": {
+                "aws:SourceVpc": "vpc-XXXXXXXX"
+              }
+            }
+          },
+          "Placeholders": {
+            "vpc-XXXXXXXX": "Replace with your VPC ID"
+          },
+          "Impact": "Admin must use MFA AND be in specified VPC",
+          "Recommendation": "Most secure option - best for highly sensitive data",
+          "Note": "Ensure admins can access VPC and have MFA configured"
+        },
+        
+        "CombineMFAandIP": {
+          "Description": "Requires BOTH MFA AND corporate IP range",
+          "SecurityLevel": "Very High",
+          "ApplicableTo": "AllowAdminRoleFullAccess statement in any KMS key",
+          "Configuration": {
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              },
               "IpAddress": {
                 "aws:SourceIp": [
                   "203.0.113.0/24"
@@ -67,35 +168,26 @@
               }
             }
           },
-          "Note": "Replace with your actual IP range"
-        },
-        "CombineMFAandVPC": {
-          "Description": "Requires BOTH MFA AND VPC access",
-          "AddTo": "AllowAdminRoleFullAccess statement",
-          "Configuration": {
-            "Condition": {
-              "Bool": {
-                "aws:MultiFactorAuthPresent": "true"
-              },
-              "StringEquals": {
-                "aws:SourceVpc": "vpc-12345678"
-              }
-            }
+          "Placeholders": {
+            "203.0.113.0/24": "Replace with your corporate IP range"
           },
-          "Note": "Most secure option - combines multiple conditions"
+          "Impact": "Admin must use MFA AND be in corporate network",
+          "Recommendation": "Alternative to VPC restriction for on-premises scenarios"
         }
       }
     },
-    "ReplicationRoleAccess": {
-      "Description": "Add this statement after parent stack creates the ReplicationRole",
-      "Location": "ReplicaKmsKey.Properties.KeyPolicy.Statement (append to array)",
-      "When": "After parent stack deployment",
-      "Note": "This will be handled automatically if using the update script",
+    
+    "ReplicationRoleAccessForReplicaKMS": {
+      "Description": "Grant ReplicationRole access to ReplicaKmsKey after parent stack deployment",
+      "ApplicableTo": ["ReplicaKmsKey only"],
+      "When": "After parent stack (Stack1) creates the ReplicationRole",
+      "StackLocation": "Replica Stack (Standalone)",
+      "Note": "This statement is REQUIRED for replication to work - not optional, but must be added after initial deployment",
       "Configuration": {
         "Sid": "AllowReplicationRoleToEncrypt",
         "Effect": "Allow",
         "Principal": {
-          "AWS": "arn:aws:iam::ACCOUNT_ID:role/ReplicationRole-NAME"
+          "AWS": "arn:aws:iam::ACCOUNT_ID:role/ReplicationRole-STACK_NAME"
         },
         "Action": [
           "kms:Encrypt",
@@ -104,68 +196,140 @@
         ],
         "Resource": "*"
       },
-      "Instructions": [
-        "1. Deploy parent stack in primary region",
-        "2. Get ReplicationRole ARN from parent stack outputs",
-        "3. Replace ACCOUNT_ID and ReplicationRole-NAME in the Principal",
+      "Placeholders": {
+        "ACCOUNT_ID": "Your AWS account ID (12 digits)",
+        "STACK_NAME": "The stack name used when deploying parent stack"
+      },
+      "DeploymentSteps": [
+        "1. Deploy Replica Stack WITHOUT this statement (initial deployment)",
+        "2. Deploy Parent Stack with Stack1 (creates ReplicationRole)",
+        "3. Get ReplicationRole ARN from Stack1 outputs: ReplicationRoleARN",
         "4. Add this statement to ReplicaKmsKey.KeyPolicy.Statement array",
-        "5. Update the replica stack"
-      ]
+        "5. Update Replica Stack (CloudFormation stack update)",
+        "6. Replication will now work with encryption"
+      ],
+      "HowToAdd": "Append this statement to ReplicaKmsKey.Properties.KeyPolicy.Statement array (after AllowAdminRoleFullAccess statement)",
+      "VerifyReplication": "After update, upload a test file to main bucket and verify it appears in replica bucket within 15 minutes"
     },
-    "ExampleWithAllOptionalFeatures": {
-      "Description": "Complete ReplicaKmsKey KeyPolicy with all optional security conditions and replication role",
-      "FullConfiguration": {
-        "Version": "2012-10-17",
-        "Statement": [
+    
+    "ReplicaBucketPolicyForReplicationRole": {
+      "Description": "Grant ReplicationRole access to ReplicaBucket after parent stack deployment",
+      "ApplicableTo": ["ReplicaBucket only"],
+      "When": "After parent stack (Stack1) creates the ReplicationRole",
+      "StackLocation": "Replica Stack (Standalone) - ReplicaBucketPolicy",
+      "Note": "This statement is REQUIRED for replication to work - not optional, but must be added after initial deployment",
+      "Configuration": {
+        "Sid": "AllowReplicationRoleToReplicate",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::ACCOUNT_ID:role/ReplicationRole-STACK_NAME"
+        },
+        "Action": [
+          "s3:ReplicateObject",
+          "s3:ReplicateDelete",
+          "s3:ReplicateTags",
+          "s3:GetObjectVersionTagging",
+          "s3:ObjectOwnerOverrideToBucketOwner"
+        ],
+        "Resource": [
           {
-            "Sid": "AllowRootAccountFullAccess",
-            "Effect": "Allow",
-            "Principal": {
-              "AWS": {
-                "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
-              }
-            },
-            "Action": "kms:*",
-            "Resource": "*"
-          },
-          {
-            "Sid": "AllowAdminRoleFullAccessWithMFAAndVPC",
-            "Effect": "Allow",
-            "Principal": {
-              "AWS": {
-                "Ref": "AdminRoleARN"
-              }
-            },
-            "Action": "kms:*",
-            "Resource": "*",
-            "Condition": {
-              "Bool": {
-                "aws:MultiFactorAuthPresent": "true"
-              },
-              "StringEquals": {
-                "aws:SourceVpc": "vpc-12345678"
-              }
-            }
-          },
-          {
-            "Sid": "AllowReplicationRoleToEncrypt",
-            "Effect": "Allow",
-            "Principal": {
-              "AWS": "arn:aws:iam::123456789012:role/ReplicationRole-stack2"
-            },
-            "Action": [
-              "kms:Encrypt",
-              "kms:GenerateDataKey",
-              "kms:DescribeKey"
-            ],
-            "Resource": "*"
+            "Fn::Join": [
+              "",
+              [
+                {
+                  "Fn::GetAtt": [
+                    "ReplicaBucket",
+                    "Arn"
+                  ]
+                },
+                "/*"
+              ]
+            ]
           }
         ]
-      }
+      },
+      "Placeholders": {
+        "ACCOUNT_ID": "Your AWS account ID (12 digits)",
+        "STACK_NAME": "The stack name used when deploying parent stack"
+      },
+      "DeploymentSteps": [
+        "1. Deploy Replica Stack WITHOUT this statement (initial deployment)",
+        "2. Deploy Parent Stack with Stack1 (creates ReplicationRole)",
+        "3. Get ReplicationRole ARN from Stack1 outputs: ReplicationRoleARN",
+        "4. Add this statement to ReplicaBucketPolicy.PolicyDocument.Statement array",
+        "5. Update Replica Stack (CloudFormation stack update)",
+        "6. Replication will now have full permissions"
+      ],
+      "HowToAdd": "Append this statement to ReplicaBucketPolicy.Properties.PolicyDocument.Statement array (after AllowAdminRoleFullAccess statement)"
+    }
+  },
+  
+  "ArchitectureCompatibilityVerification": {
+    "ReplicaStack": {
+      "Buckets": ["ReplicaBucket"],
+      "KMSKeys": ["ReplicaKmsKey"],
+      "CompatibleOptionalConfigs": [
+        "IntelligentTiering (ReplicaBucket) - Highly recommended for DR data",
+        "EnhancedKMSSecurityConditions (ReplicaKmsKey) - All options compatible",
+        "ReplicationRoleAccessForReplicaKMS - REQUIRED after parent stack deployment",
+        "ReplicaBucketPolicyForReplicationRole - REQUIRED after parent stack deployment"
+      ],
+      "ExistingFeatures": [
+        "Object Lock COMPLIANCE mode (30 days)",
+        "Versioning enabled",
+        "KMS encryption with key rotation",
+        "Public access blocked",
+        "EventBridge notifications enabled"
+      ],
+      "NoConflicts": "All optional configs compatible with existing features"
     },
-    "ExampleReplicaBucketWithIntelligentTiering": {
-      "Description": "Complete ReplicaBucket configuration with Intelligent-Tiering enabled",
-      "Note": "This shows only the additions - merge with existing ReplicaBucket.Properties",
+    
+    "Stack0_Logging": {
+      "Buckets": ["LoggingBucket"],
+      "KMSKeys": ["LoggingKmsKey"],
+      "CompatibleOptionalConfigs": [
+        "IntelligentTiering (LoggingBucket) - HIGHLY RECOMMENDED for cost savings on old logs",
+        "EnhancedKMSSecurityConditions (LoggingKmsKey) - All options compatible"
+      ],
+      "ExistingFeatures": [
+        "Object Lock COMPLIANCE mode (90 days)",
+        "Versioning enabled",
+        "KMS encryption with key rotation",
+        "Public access blocked",
+        "Accepts S3 access logs and CloudTrail logs"
+      ],
+      "Recommendation": "Add Intelligent-Tiering to LoggingBucket - logs are rarely accessed after 30-90 days",
+      "NoConflicts": "All optional configs compatible with existing features"
+    },
+    
+    "Stack1_MainBucket": {
+      "Buckets": ["MainS3Bucket"],
+      "KMSKeys": ["MainS3KmsKey"],
+      "CompatibleOptionalConfigs": [
+        "IntelligentTiering (MainS3Bucket) - Recommended if access patterns vary",
+        "EnhancedKMSSecurityConditions (MainS3KmsKey) - All options compatible (but test carefully to avoid breaking replication)"
+      ],
+      "ExistingFeatures": [
+        "Object Lock COMPLIANCE mode (30 days)",
+        "Versioning enabled",
+        "KMS encryption with key rotation",
+        "Public access blocked",
+        "Cross-Region Replication to ReplicaBucket",
+        "EventBridge notifications enabled",
+        "Logs to LoggingBucket"
+      ],
+      "Recommendation": "Consider Intelligent-Tiering if your data has mixed access patterns",
+      "CautionaryNote": "If adding VPC/IP restrictions to MainS3KmsKey, ensure ReplicationRole can still access the key (replication service runs outside VPC)",
+      "NoConflicts": "All optional configs compatible, but test KMS conditions to ensure replication continues working"
+    }
+  },
+  
+  "CompleteExamples": {
+    "Example1_ReplicaBucketWithIntelligentTiering": {
+      "Description": "Complete ReplicaBucket configuration with Intelligent-Tiering for cost optimization",
+      "Stack": "Replica Stack",
+      "Resource": "ReplicaBucket",
+      "HowToApply": "Add IntelligentTieringConfigurations to ReplicaBucket.Properties (after LifecycleConfiguration)",
       "PartialConfiguration": {
         "IntelligentTieringConfigurations": [
           {
@@ -183,43 +347,168 @@
             ]
           }
         ]
+      }
+    },
+    
+    "Example2_LoggingBucketWithIntelligentTiering": {
+      "Description": "LoggingBucket with Intelligent-Tiering - HIGHLY RECOMMENDED for cost savings",
+      "Stack": "Stack0 (Logging)",
+      "Resource": "LoggingBucket",
+      "HowToApply": "Add IntelligentTieringConfigurations to LoggingBucket.Properties (after LifecycleConfiguration)",
+      "CostImpact": "Can reduce logging storage costs by 60-90% after 90-180 days",
+      "PartialConfiguration": {
+        "IntelligentTieringConfigurations": [
+          {
+            "Id": "LogArchiving",
+            "Status": "Enabled",
+            "Tierings": [
+              {
+                "Days": 90,
+                "AccessTier": "ARCHIVE_ACCESS"
+              },
+              {
+                "Days": 180,
+                "AccessTier": "DEEP_ARCHIVE_ACCESS"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    
+    "Example3_ReplicaKmsKeyWithMFAAndReplicationRole": {
+      "Description": "Complete ReplicaKmsKey policy with MFA requirement for admin AND replication role access",
+      "Stack": "Replica Stack",
+      "Resource": "ReplicaKmsKey",
+      "HowToApply": "Replace entire KeyPolicy in ReplicaKmsKey.Properties",
+      "Note": "Deploy this AFTER parent stack creates ReplicationRole",
+      "FullConfiguration": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Sid": "AllowRootAccountFullAccess",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": {
+                "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+              }
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+          },
+          {
+            "Sid": "AllowAdminRoleFullAccessWithMFA",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": {
+                "Ref": "AdminRoleARN"
+              }
+            },
+            "Action": "kms:*",
+            "Resource": "*",
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              }
+            }
+          },
+          {
+            "Sid": "AllowReplicationRoleToEncrypt",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::123456789012:role/ReplicationRole-stack-name"
+            },
+            "Action": [
+              "kms:Encrypt",
+              "kms:GenerateDataKey",
+              "kms:DescribeKey"
+            ],
+            "Resource": "*"
+          }
+        ]
       },
-      "AddTo": "ReplicaBucket.Properties (same level as VersioningConfiguration, LifecycleConfiguration, etc.)"
+      "Placeholders": {
+        "123456789012": "Replace with your AWS account ID",
+        "ReplicationRole-stack-name": "Replace with actual ReplicationRole name from Stack1 outputs"
+      }
+    },
+    
+    "Example4_MainKmsKeyWithVPCAndReplicationCompatibility": {
+      "Description": "MainS3KmsKey with VPC restriction for admin, but allows replication service",
+      "Stack": "Stack1 (Main Bucket)",
+      "Resource": "MainS3KmsKey",
+      "HowToApply": "Update the AllowAdminRoleFullAccess statement in MainS3KmsKey.Properties.KeyPolicy",
+      "CriticalNote": "ReplicationRole statement must NOT have VPC condition - replication service runs outside VPC",
+      "PartialConfiguration": {
+        "AllowAdminRoleFullAccessStatement": {
+          "Sid": "AllowAdminRoleFullAccess",
+          "Effect": "Allow",
+          "Principal": {
+            "AWS": {
+              "Ref": "AdminRoleARN"
+            }
+          },
+          "Action": "kms:*",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:SourceVpc": "vpc-XXXXXXXX"
+            }
+          }
+        },
+        "KeepReplicationRoleStatementUnchanged": "Do NOT add VPC condition to AllowReplicationRoleToDecrypt statement"
+      }
     }
   },
-  "UsageExamples": {
-    "Example1_AddIntelligentTiering": {
-      "Step": "Add Intelligent-Tiering to reduce storage costs",
-      "Modification": "In ReplicaBucket.Properties, add the IntelligentTieringConfigurations block after LifecycleConfiguration",
-      "Result": "Objects automatically move to cheaper storage tiers after 90 and 180 days of no access"
-    },
-    "Example2_RequireMFAForAdmin": {
-      "Step": "Require MFA for admin KMS operations",
-      "Modification": "In ReplicaKmsKey.KeyPolicy.Statement[1] (AllowAdminRoleFullAccess), add the MFA Condition",
-      "Result": "Admins must authenticate with MFA to use the KMS key"
-    },
-    "Example3_AddReplicationRoleAfterDeployment": {
-      "Step": "Grant replication role access after parent stack creates it",
-      "Modification": "Add the ReplicationRoleAccess statement to ReplicaKmsKey.KeyPolicy.Statement array",
-      "Result": "Replication role can encrypt objects in the replica bucket"
-    }
-  },
+  
   "DeploymentWorkflow": {
-    "InitialDeployment": [
-      "1. Deploy replica stack WITHOUT ReplicationRoleAccess statement",
-      "2. Stack creates: ReplicaBucket, ReplicaKmsKey, ReplicaBucketPolicy",
-      "3. Note the outputs: ReplicaBucketARN, ReplicaKmsKeyARN"
+    "Phase1_InitialDeployment": {
+      "Steps": [
+        "1. Deploy Replica Stack WITHOUT ReplicationRole statements",
+        "2. Deploy Stack0 (Logging)",
+        "3. Deploy Parent Stack with Stack1 (creates ReplicationRole)",
+        "4. Deploy Stack2 (MRAP)",
+        "5. Deploy Stack3 (Monitoring)",
+        "6. Deploy Stack4 (CloudTrail)"
+      ],
+      "Status": "Core infrastructure deployed, but replication not yet functional"
+    },
+    
+    "Phase2_EnableReplication": {
+      "Steps": [
+        "1. Get ReplicationRole ARN from Stack1 outputs",
+        "2. Update Replica Stack KMS key policy with ReplicationRoleAccessForReplicaKMS",
+        "3. Update Replica Stack bucket policy with ReplicaBucketPolicyForReplicationRole",
+        "4. Redeploy Replica Stack (CloudFormation update)"
+      ],
+      "Status": "Replication now fully functional"
+    },
+    
+    "Phase3_OptionalEnhancements": {
+      "Steps": [
+        "1. Add Intelligent-Tiering to LoggingBucket (highly recommended)",
+        "2. Add Intelligent-Tiering to ReplicaBucket (recommended)",
+        "3. Consider Intelligent-Tiering for MainS3Bucket (optional)",
+        "4. Add MFA conditions to KMS keys (recommended for production)",
+        "5. Add VPC/IP restrictions if needed (optional, test carefully)"
+      ],
+      "Status": "Enhanced security and cost optimization"
+    }
+  },
+  
+  "RecommendedOptionalConfigurations": {
+    "HighPriority": [
+      "Add Intelligent-Tiering to LoggingBucket (can save 60-90% on storage costs)",
+      "Add ReplicationRole access to Replica Stack (REQUIRED for replication to work)",
+      "Add MFA requirement for admin KMS access (production security best practice)"
     ],
-    "AfterParentStackDeployment": [
-      "1. Parent stack creates ReplicationRole",
-      "2. Get ReplicationRole ARN from parent stack outputs",
-      "3. Update replica stack's KMS key policy with ReplicationRoleAccess statement",
-      "4. Redeploy replica stack (CloudFormation update)"
+    "MediumPriority": [
+      "Add Intelligent-Tiering to ReplicaBucket (good for disaster recovery cost management)",
+      "Add VPC restrictions for admin KMS access (if all access is from VPC)"
     ],
-    "OptionalEnhancements": [
-      "1. Add Intelligent-Tiering for cost optimization",
-      "2. Add MFA/VPC conditions for enhanced security",
-      "3. Customize lifecycle rules based on retention requirements"
+    "LowPriority": [
+      "Add Intelligent-Tiering to MainS3Bucket (only if access patterns justify it)",
+      "Add IP restrictions for admin KMS access (alternative to VPC restrictions)"
     ]
   }
 }
