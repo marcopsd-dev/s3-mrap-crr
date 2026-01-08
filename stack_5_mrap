@@ -1,0 +1,270 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Stack2 - Multi-Region Access Point (MRAP): Provides intelligent routing between main and replica S3 buckets (Nested Stack - Depends on Stack1)",
+  "Parameters": {
+    "MainBucketName": {
+      "Type": "String",
+      "Description": "Name of the main S3 bucket from Stack1"
+    },
+    "MainBucketARN": {
+      "Type": "String",
+      "Description": "ARN of the main S3 bucket from Stack1",
+      "AllowedPattern": "arn:aws:s3:::.+",
+      "ConstraintDescription": "Must be a valid S3 bucket ARN"
+    },
+    "ReplicaBucketName": {
+      "Type": "String",
+      "Description": "Name of the replica S3 bucket from Standalone Replica Stack"
+    },
+    "ReplicaBucketARN": {
+      "Type": "String",
+      "Description": "ARN of the replica S3 bucket from Standalone Replica Stack",
+      "AllowedPattern": "arn:aws:s3:::.+",
+      "ConstraintDescription": "Must be a valid S3 bucket ARN"
+    },
+    "ReplicaRegion": {
+      "Type": "String",
+      "Description": "AWS region where the replica bucket is deployed",
+      "Default": "us-west-2",
+      "AllowedValues": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-central-1",
+        "ap-southeast-1",
+        "ap-southeast-2",
+        "ap-northeast-1"
+      ]
+    },
+    "MRAPName": {
+      "Type": "String",
+      "Description": "Name for the Multi-Region Access Point (leave empty for auto-generation)",
+      "Default": "",
+      "MaxLength": 50,
+      "AllowedPattern": "^$|^[a-z0-9][a-z0-9\\-]*[a-z0-9]$",
+      "ConstraintDescription": "Must be lowercase alphanumeric with hyphens, or empty for auto-generation"
+    }
+  },
+  "Conditions": {
+    "HasMRAPName": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "MRAPName"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "S3MultiRegionAccessPoint": {
+      "Type": "AWS::S3::MultiRegionAccessPoint",
+      "Properties": {
+        "Name": {
+          "Fn::If": [
+            "HasMRAPName",
+            {
+              "Ref": "MRAPName"
+            },
+            {
+              "Fn::Sub": "mrap-${AWS::StackName}"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "Regions": [
+          {
+            "Bucket": {
+              "Ref": "MainBucketName"
+            },
+            "BucketAccountId": {
+              "Ref": "AWS::AccountId"
+            }
+          },
+          {
+            "Bucket": {
+              "Ref": "ReplicaBucketName"
+            },
+            "BucketAccountId": {
+              "Ref": "AWS::AccountId"
+            }
+          }
+        ]
+      }
+    },
+    "S3MultiRegionAccessPointPolicy": {
+      "Type": "AWS::S3::MultiRegionAccessPointPolicy",
+      "Properties": {
+        "MrapName": {
+          "Fn::GetAtt": [
+            "S3MultiRegionAccessPoint",
+            "Name"
+          ]
+        },
+        "Policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "S3MultiRegionAccessPoint",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "S3MultiRegionAccessPoint",
+                          "Arn"
+                        ]
+                      },
+                      "/object/*"
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "S3MultiRegionAccessPoint",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "S3MultiRegionAccessPoint",
+                          "Arn"
+                        ]
+                      },
+                      "/object/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "MRAPName": {
+      "Description": "Name of the Multi-Region Access Point",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3MultiRegionAccessPoint",
+          "Name"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPName"
+        }
+      }
+    },
+    "MRAPARN": {
+      "Description": "ARN of the Multi-Region Access Point",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3MultiRegionAccessPoint",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPARN"
+        }
+      }
+    },
+    "MRAPAlias": {
+      "Description": "Alias of the Multi-Region Access Point for accessing data",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3MultiRegionAccessPoint",
+          "Alias"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPAlias"
+        }
+      }
+    },
+    "MRAPEndpoint": {
+      "Description": "Endpoint for accessing the Multi-Region Access Point",
+      "Value": {
+        "Fn::Sub": "https://${S3MultiRegionAccessPoint.Alias}.accesspoint.s3-global.amazonaws.com"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPEndpoint"
+        }
+      }
+    },
+    "MRAPCreatedDate": {
+      "Description": "Date when the Multi-Region Access Point was created",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3MultiRegionAccessPoint",
+          "CreatedAt"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPCreatedDate"
+        }
+      }
+    },
+    "MRAPStatus": {
+      "Description": "Status of the Multi-Region Access Point",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3MultiRegionAccessPoint",
+          "Status"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPStatus"
+        }
+      }
+    }
+  }
+}
