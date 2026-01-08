@@ -11,11 +11,6 @@
 
 ## 📑 Table of Contents
 
-- [Description](#-description)
-- [Architecture at a Glance](#-architecture-at-a-glance)
-- [Security & Resilience Highlights](#-security--resilience-highlights)
-- [Event-Driven Security & Alerting](#-event-driven-security--alerting)
-- [CloudFormation Stacks](#-cloudformation-stacks)
 
 ---
 
@@ -36,22 +31,109 @@ This architecture is well-suited for **regulated environments**, **forensics rea
 ---
 
 ## 🏗️ Architecture at a Glance
+<br>
 
-| Tool | Description |
-|------|------------|
-| 🪣 **S3 Buckets (Multi-Region)** | Regionally isolated buckets for resilience, availability, and fault tolerance |
-| 🌐 **Cross-Region Replication (CRR)** | Automatically replicates objects and versions across regions |
-| 🚀 **Multi-Region Access Points (MRAP)** | Global endpoint that routes traffic to the nearest healthy bucket |
-| 🔐 **AWS KMS (CMKs)** | Customer-managed encryption keys per region |
-| 🧱 **S3 Object Lock (WORM)** | Immutable storage preventing deletion or modification |
-| 🔄 **S3 Object Versioning** | Maintains historical versions for rollback and recovery |
-| 🧾 **AWS CloudTrail** | Captures S3, KMS, IAM, and API activity for auditing |
-| 📊 **Amazon CloudWatch** | Metrics, logs, and alarms for operational and security monitoring |
-| 🕵️ **Amazon Macie** | Detects and classifies sensitive data in S3 |
-| ⚡ **Amazon EventBridge** | Routes Macie findings and API events |
-| 📣 **Amazon SNS** | Sends security alerts and notifications |
-| 🧾 **IAM Policies & Roles** | Enforces least-privilege access across services |
+| Component | Purpose | Key Features |
+|-----------|---------|--------------|
+| 👥 **Applications & Users** | Global client access layer | Multi-region routing, automatic failover |
+| 🌐 **Multi-Region Access Point** | Intelligent request routing | Latency-based routing, health checks |
+| 🪣 **S3 Buckets** | Dual-region storage | Active-passive configuration, CRR enabled |
+| 🔄 **Versioning** | Data protection | Point-in-time recovery, accidental deletion protection |
+| 🧱 **Object Lock** | Compliance & immutability | WORM storage, ransomware protection |
+| 🔐 **KMS Encryption** | Data confidentiality | AES-256 encryption, automated key rotation |
+| 🧾 **CloudTrail** | Audit logging | Complete API activity tracking, compliance evidence |
+| 📦 **Central Logging** | Log aggregation | Cross-account logging, long-term retention |
+| 🕵️ **Amazon Macie** | Data classification | Automated PII detection, sensitive data alerts |
+| ⚡ **EventBridge** | Event orchestration | Real-time event filtering, automated workflows |
+| 📊 **CloudWatch** | Operational monitoring | Custom metrics, anomaly detection, dashboards |
+| 📣 **SNS Notifications** | Alert distribution | Multi-channel delivery, priority routing |
+| 👨‍💼 **Security Operations** | Incident response | 24/7 monitoring, threat analysis, remediation |
 
+<br>
+
+### Architectural Diagram: 
+
+<br>
+
+```mermaid
+flowchart TB
+    %% Styling with vibrant colors on black background
+    classDef clientClass fill:#4A90E2,stroke:#6DB3F2,stroke-width:3px,color:#000,font-weight:bold
+    classDef mrapClass fill:#9B59B6,stroke:#BB8FCE,stroke-width:3px,color:#fff,font-weight:bold
+    classDef s3Class fill:#FF6B35,stroke:#FF8C61,stroke-width:3px,color:#fff,font-weight:bold
+    classDef securityClass fill:#2ECC71,stroke:#58D68D,stroke-width:3px,color:#000,font-weight:bold
+    classDef loggingClass fill:#3498DB,stroke:#5DADE2,stroke-width:3px,color:#fff,font-weight:bold
+    classDef monitorClass fill:#E74C3C,stroke:#EC7063,stroke-width:3px,color:#fff,font-weight:bold
+    classDef alertClass fill:#F39C12,stroke:#F8C471,stroke-width:3px,color:#000,font-weight:bold
+    classDef kmsClass fill:#16A085,stroke:#48C9B0,stroke-width:3px,color:#fff,font-weight:bold
+    
+    %% Application Layer
+    A[👥 Applications & Users<br/>Global Access]:::clientClass
+    
+    %% Global Routing
+    B[🌐 S3 Multi-Region Access Point<br/>& Automatic Failover]:::mrapClass
+    
+    %% Primary Storage
+    C1[🪣 Primary Bucket<br/>Region: us-east-1<br/>Status: Active]:::s3Class
+    
+    %% Replica Storage
+    C2[🪣 Replica Bucket<br/>Region: us-west-2<br/>Status: Standby]:::s3Class
+    
+    %% Data Protection Layer
+    D[🔄 Versioning Enabled<br/>Complete History<br/>Rollback Ready]:::securityClass
+    E[🧱 Object Lock<br/>WORM Compliance<br/>Immutable Storage]:::securityClass
+    F1[🔐 KMS Key us-east-1<br/>Customer Managed<br/>Automatic Rotation]:::kmsClass
+    F2[🔐 KMS Key us-west-2<br/>Customer Managed<br/>Automatic Rotation]:::kmsClass
+    
+    %% Audit Trail
+    G[🧾 AWS CloudTrail<br/>API Call Logging<br/>Cross-Region Enabled]:::loggingClass
+    H[📦 Logging Bucket<br/>Central Repository<br/>Long-Term Retention]:::loggingClass
+    I[🔒 Tamper-Proof Logs<br/>Object Lock Active<br/>Forensics Ready]:::loggingClass
+    
+    %% Threat Detection
+    J[🕵️ Amazon Macie<br/>Sensitive Data Discovery<br/>PII Detection]:::monitorClass
+    K[⚡ EventBridge Rules<br/>Real-Time Filtering<br/>Automated Routing]:::monitorClass
+    N[📊 CloudWatch<br/>Metrics & Dashboards<br/>Anomaly Detection]:::monitorClass
+    
+    %% Alert System
+    L[📣 SNS Notifications<br/>Multi-Channel Alerts<br/>Email & Slack]:::alertClass
+    M[👨‍💼 Security Operations<br/>24/7 Monitoring<br/>Incident Response]:::alertClass
+    
+    %% Primary Flow
+    A -->|HTTPS Requests| B
+    B -->|Route to Primary| C1
+    B -->|Route to Replica| C2
+    C1 -.->|Async Replication<br/>Real-Time Sync| C2
+    
+    %% Security Controls
+    C1 -->|Applied to| D
+    C2 -->|Applied to| D
+    C1 -->|Protected by| E
+    C2 -->|Protected by| E
+    C1 -->|Encrypted with| F1
+    C2 -->|Encrypted with| F2
+    
+    %% Audit Pipeline
+    C1 -->|Logs Activity| G
+    C2 -->|Logs Activity| G
+    G -->|Streams to| H
+    H -->|Protected by| I
+    
+    %% Security Monitoring
+    C1 -->|Scanned by| J
+    C2 -->|Scanned by| J
+    J -->|Findings to| K
+    K -->|Alerts to| L
+    L -->|Notifies| M
+    
+    %% Operational Monitoring
+    G -->|Metrics to| N
+    N -->|Critical Alerts| M
+    
+    %% Subgraph styling
+    style A fill:#4A90E2,stroke:#6DB3F2,stroke-width:3px
+    style B fill:#9B59B6,stroke:#BB8FCE,stroke-width:3px
+```
 ---
 
 ## 🔐 Security & Resilience Highlights
@@ -93,33 +175,71 @@ This architecture leverages **event-driven automation** to detect and respond to
 
 ## ☁️ CloudFormation Stacks
 
-### 📦 [JSON Stack #1 – Secure S3 Core](S3_Bucket_CFN_JSON)
+### 📦 JSON Stack #1 – Stand Alone S3 Replica Bucket:
 
 **Description:**  
-Creates a hardened S3 bucket with **Object Lock**, **Versioning**, **KMS encryption**, and **restricted IAM access**, along with a **dedicated immutable logging bucket**.
+
+This CloudFormation template provisions a secure secondary-region S3 replica bucket with Object Lock (WORM), versioning, and KMS encryption to serve as a protected replication destination. It enforces private access, immutable storage, and controlled retention, making it suitable for disaster recovery, ransomware resilience, and compliance-driven data replication.
 
 **Stack Diagram:**  
-<img width="7659" height="2742" alt="S3_UPDATED_STACK_1" src="https://github.com/user-attachments/assets/8e99ceb6-272b-4335-8b6e-ccde6265a499" />
+
+<img width="7369" height="3687" alt="s3_replica" src="https://github.com/user-attachments/assets/f4137035-ca09-4660-ade6-fe2060edefdd" />
+
 
 ---
 
-### 📦 [JSON Stack #2 – Replication Bucket](s3_bucket_region_2)
+### 📦 JSON Stack #2 - Parent Stack:
 
 **Description:**  
 Deploys additional region-specific S3 buckets configured for **CRR**, **Object Lock**, **Versioning**, and **KMS encryption**.
 
 **Stack Diagram:**  
-<img width="6484" height="544" alt="s3_Replicate_Bucket" src="https://github.com/user-attachments/assets/3c3cbc19-6458-4f31-91bf-12af5f1bedba" />
+
 
 ---
 
-### 📦 [JSON Stack #3 – CRR & MRAP](S3_CRR_MRAP)
+### 📦 JSON Stack #3 – Centralized Logging bucket:
 
 **Description:**  
-Enables **Cross-Region Replication** and configures a **Multi-Region Access Point** for unified global access while maintaining encryption and compliance controls.
+Centralized Logging CloudFormation Stack:
+This CloudFormation template deploys a hardened S3 logging bucket with Object Lock (WORM), versioning, and KMS encryption to securely store S3 access logs and CloudTrail events. It enforces private, immutable log retention and integrates with CloudTrail and CloudWatch Logs, providing a tamper-resistant audit trail for security monitoring, forensics, and compliance.
 
 **Stack Diagram:**  
-<img width="6228" height="591" alt="s3_CRR_MRAP" src="https://github.com/user-attachments/assets/7a45a333-933d-4f08-818f-2e662164d3f0" />
+
+
+<img width="7936" height="6892" alt="s3_logging_bucket" src="https://github.com/user-attachments/assets/827e7037-8502-4736-9ad0-a42d0772e0a2" />
+
+---
+
+### 📦 JSON Stack #4 - Main S3 Bucket:
+
+**Description:**  
+
+**Stack Diagram:**  
+
+---
+
+### 📦 JSON Stack #5 - :
+
+**Description:**  
+
+**Stack Diagram:**  
+
+---
+
+### 📦 JSON Stack #6 - :
+
+**Description:**  
+
+**Stack Diagram:**  
+
+---
+
+### 📦 JSON Stack #7 OPTIONAL - Config for Intelligent-Tiering:
+
+**Description:**  
+
+**Stack Diagram:**  
 
 ---
 
@@ -133,11 +253,9 @@ Enables **Cross-Region Replication** and configures a **Multi-Region Access Poin
 
 ---
 
-## 🛡️ Security Mindset
+## 🛡️ Deployment Script: 
 
-> **Assume breach. Design for recovery. Detect everything.**
 
-This project emphasizes **prevention, detection, and recovery**—not just availability.
 
 ---
 
