@@ -1,0 +1,540 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Stack3 - Monitoring Infrastructure: EventBridge Rules, Amazon Macie, and SNS Email Alerts (Nested Stack - Depends on Stack1 and Stack2)",
+  "Parameters": {
+    "AdminRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the IAM Admin role for management (PLACEHOLDER: Replace with actual ARN)",
+      "Default": "arn:aws:iam::123456789012:role/REPLACE-WITH-ADMIN-ROLE",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    },
+    "MainBucketName": {
+      "Type": "String",
+      "Description": "Name of the main S3 bucket from Stack1 to monitor"
+    },
+    "MainBucketARN": {
+      "Type": "String",
+      "Description": "ARN of the main S3 bucket from Stack1",
+      "AllowedPattern": "arn:aws:s3:::.+",
+      "ConstraintDescription": "Must be a valid S3 bucket ARN"
+    },
+    "AlertEmailAddress": {
+      "Type": "String",
+      "Description": "Email address for receiving security and compliance alerts (PLACEHOLDER: Replace with actual email)",
+      "Default": "security-alerts@example.com",
+      "AllowedPattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+      "ConstraintDescription": "Must be a valid email address"
+    },
+    "EnableMacie": {
+      "Type": "String",
+      "Description": "Enable Amazon Macie for sensitive data discovery",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ]
+    }
+  },
+  "Conditions": {
+    "ShouldEnableMacie": {
+      "Fn::Equals": [
+        {
+          "Ref": "EnableMacie"
+        },
+        "true"
+      ]
+    }
+  },
+  "Resources": {
+    "SecurityAlertsTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "TopicName": {
+          "Fn::Sub": "S3SecurityAlerts-${AWS::StackName}"
+        },
+        "DisplayName": "S3 Security and Compliance Alerts",
+        "Subscription": [
+          {
+            "Endpoint": {
+              "Ref": "AlertEmailAddress"
+            },
+            "Protocol": "email"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "SecurityAlerting"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack3-Monitoring"
+          }
+        ]
+      }
+    },
+    "SecurityAlertsTopicPolicy": {
+      "Type": "AWS::SNS::TopicPolicy",
+      "Properties": {
+        "Topics": [
+          {
+            "Ref": "SecurityAlertsTopic"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowEventBridgeToPublish",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com"
+              },
+              "Action": "SNS:Publish",
+              "Resource": {
+                "Ref": "SecurityAlertsTopic"
+              }
+            },
+            {
+              "Sid": "AllowMacieToPublish",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "macie.amazonaws.com"
+              },
+              "Action": "SNS:Publish",
+              "Resource": {
+                "Ref": "SecurityAlertsTopic"
+              }
+            },
+            {
+              "Sid": "AllowRootAccountAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": [
+                "SNS:Subscribe",
+                "SNS:Receive",
+                "SNS:Publish"
+              ],
+              "Resource": {
+                "Ref": "SecurityAlertsTopic"
+              }
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": [
+                "SNS:Subscribe",
+                "SNS:Receive",
+                "SNS:Publish",
+                "SNS:Unsubscribe",
+                "SNS:GetTopicAttributes",
+                "SNS:SetTopicAttributes",
+                "SNS:DeleteTopic",
+                "SNS:AddPermission",
+                "SNS:RemovePermission"
+              ],
+              "Resource": {
+                "Ref": "SecurityAlertsTopic"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "S3ObjectCreatedRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "S3ObjectCreated-${AWS::StackName}"
+        },
+        "Description": "Triggers alert when objects are created in the S3 bucket",
+        "EventPattern": {
+          "source": [
+            "aws.s3"
+          ],
+          "detail-type": [
+            "Object Created"
+          ],
+          "detail": {
+            "bucket": {
+              "name": [
+                {
+                  "Ref": "MainBucketName"
+                }
+              ]
+            }
+          }
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "SecurityAlertsTopic"
+            },
+            "Id": "S3ObjectCreatedTarget",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "bucket": "$.detail.bucket.name",
+                "key": "$.detail.object.key",
+                "size": "$.detail.object.size",
+                "time": "$.time"
+              },
+              "InputTemplate": "\"ALERT: New object created in S3 bucket.\\n\\nBucket: <bucket>\\nObject Key: <key>\\nObject Size: <size> bytes\\nTime: <time>\\n\\nThis is an automated alert from your S3 monitoring system.\""
+            }
+          }
+        ]
+      }
+    },
+    "S3ObjectDeletedRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "S3ObjectDeleted-${AWS::StackName}"
+        },
+        "Description": "Triggers alert when objects are deleted from the S3 bucket",
+        "EventPattern": {
+          "source": [
+            "aws.s3"
+          ],
+          "detail-type": [
+            "Object Deleted"
+          ],
+          "detail": {
+            "bucket": {
+              "name": [
+                {
+                  "Ref": "MainBucketName"
+                }
+              ]
+            }
+          }
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "SecurityAlertsTopic"
+            },
+            "Id": "S3ObjectDeletedTarget",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "bucket": "$.detail.bucket.name",
+                "key": "$.detail.object.key",
+                "time": "$.time",
+                "requester": "$.detail.requester"
+              },
+              "InputTemplate": "\"ALERT: Object deleted from S3 bucket.\\n\\nBucket: <bucket>\\nObject Key: <key>\\nDeleted By: <requester>\\nTime: <time>\\n\\nThis is an automated alert from your S3 monitoring system.\""
+            }
+          }
+        ]
+      }
+    },
+    "S3BucketPolicyChangeRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "S3BucketPolicyChange-${AWS::StackName}"
+        },
+        "Description": "Triggers alert when S3 bucket policy is modified",
+        "EventPattern": {
+          "source": [
+            "aws.s3"
+          ],
+          "detail-type": [
+            "AWS API Call via CloudTrail"
+          ],
+          "detail": {
+            "eventSource": [
+              "s3.amazonaws.com"
+            ],
+            "eventName": [
+              "PutBucketPolicy",
+              "DeleteBucketPolicy"
+            ],
+            "requestParameters": {
+              "bucketName": [
+                {
+                  "Ref": "MainBucketName"
+                }
+              ]
+            }
+          }
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "SecurityAlertsTopic"
+            },
+            "Id": "S3BucketPolicyChangeTarget",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "bucket": "$.detail.requestParameters.bucketName",
+                "eventName": "$.detail.eventName",
+                "user": "$.detail.userIdentity.principalId",
+                "time": "$.time",
+                "sourceIP": "$.detail.sourceIPAddress"
+              },
+              "InputTemplate": "\"SECURITY ALERT: S3 Bucket Policy Modified!\\n\\nBucket: <bucket>\\nAction: <eventName>\\nUser: <user>\\nSource IP: <sourceIP>\\nTime: <time>\\n\\nThis is a critical security alert. Please review this change immediately.\""
+            }
+          }
+        ]
+      }
+    },
+    "S3PublicAccessChangeRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "S3PublicAccessChange-${AWS::StackName}"
+        },
+        "Description": "Triggers alert when S3 public access settings are modified",
+        "EventPattern": {
+          "source": [
+            "aws.s3"
+          ],
+          "detail-type": [
+            "AWS API Call via CloudTrail"
+          ],
+          "detail": {
+            "eventSource": [
+              "s3.amazonaws.com"
+            ],
+            "eventName": [
+              "PutBucketPublicAccessBlock",
+              "DeleteBucketPublicAccessBlock"
+            ],
+            "requestParameters": {
+              "bucketName": [
+                {
+                  "Ref": "MainBucketName"
+                }
+              ]
+            }
+          }
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "SecurityAlertsTopic"
+            },
+            "Id": "S3PublicAccessChangeTarget",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "bucket": "$.detail.requestParameters.bucketName",
+                "eventName": "$.detail.eventName",
+                "user": "$.detail.userIdentity.principalId",
+                "time": "$.time",
+                "sourceIP": "$.detail.sourceIPAddress"
+              },
+              "InputTemplate": "\"CRITICAL SECURITY ALERT: S3 Public Access Settings Changed!\\n\\nBucket: <bucket>\\nAction: <eventName>\\nUser: <user>\\nSource IP: <sourceIP>\\nTime: <time>\\n\\nThis is a critical security alert. Public access settings were modified. Please review immediately.\""
+            }
+          }
+        ]
+      }
+    },
+    "S3EncryptionChangeRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "S3EncryptionChange-${AWS::StackName}"
+        },
+        "Description": "Triggers alert when S3 bucket encryption is modified",
+        "EventPattern": {
+          "source": [
+            "aws.s3"
+          ],
+          "detail-type": [
+            "AWS API Call via CloudTrail"
+          ],
+          "detail": {
+            "eventSource": [
+              "s3.amazonaws.com"
+            ],
+            "eventName": [
+              "PutBucketEncryption",
+              "DeleteBucketEncryption"
+            ],
+            "requestParameters": {
+              "bucketName": [
+                {
+                  "Ref": "MainBucketName"
+                }
+              ]
+            }
+          }
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "SecurityAlertsTopic"
+            },
+            "Id": "S3EncryptionChangeTarget",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "bucket": "$.detail.requestParameters.bucketName",
+                "eventName": "$.detail.eventName",
+                "user": "$.detail.userIdentity.principalId",
+                "time": "$.time",
+                "sourceIP": "$.detail.sourceIPAddress"
+              },
+              "InputTemplate": "\"SECURITY ALERT: S3 Bucket Encryption Modified!\\n\\nBucket: <bucket>\\nAction: <eventName>\\nUser: <user>\\nSource IP: <sourceIP>\\nTime: <time>\\n\\nThis is a security alert. Encryption settings were modified. Please review this change.\""
+            }
+          }
+        ]
+      }
+    },
+    "MacieSession": {
+      "Type": "AWS::Macie::Session",
+      "Condition": "ShouldEnableMacie",
+      "Properties": {
+        "Status": "ENABLED",
+        "FindingPublishingFrequency": "FIFTEEN_MINUTES"
+      }
+    },
+    "MacieCustomDataIdentifier": {
+      "Type": "AWS::Macie::CustomDataIdentifier",
+      "Condition": "ShouldEnableMacie",
+      "DependsOn": "MacieSession",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "CustomPII-${AWS::StackName}"
+        },
+        "Description": "Custom data identifier for sensitive patterns",
+        "Regex": "\\b(?:\\d{3}-\\d{2}-\\d{4}|\\d{9})\\b",
+        "Keywords": [
+          "ssn",
+          "social security",
+          "tax id",
+          "taxpayer id"
+        ]
+      }
+    },
+    "MacieFindingsEventRule": {
+      "Type": "AWS::Events::Rule",
+      "Condition": "ShouldEnableMacie",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "MacieFindings-${AWS::StackName}"
+        },
+        "Description": "Triggers alert when Macie discovers sensitive data",
+        "EventPattern": {
+          "source": [
+            "aws.macie"
+          ],
+          "detail-type": [
+            "Macie Finding"
+          ],
+          "detail": {
+            "resourcesAffected": {
+              "s3Bucket": {
+                "name": [
+                  {
+                    "Ref": "MainBucketName"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "SecurityAlertsTopic"
+            },
+            "Id": "MacieFindingsTarget",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "severity": "$.detail.severity.description",
+                "type": "$.detail.type",
+                "bucket": "$.detail.resourcesAffected.s3Bucket.name",
+                "key": "$.detail.resourcesAffected.s3Object.key",
+                "time": "$.time",
+                "description": "$.detail.description"
+              },
+              "InputTemplate": "\"MACIE ALERT: Sensitive Data Discovered!\\n\\nSeverity: <severity>\\nFinding Type: <type>\\nBucket: <bucket>\\nObject: <key>\\nTime: <time>\\n\\nDescription: <description>\\n\\nPlease review this finding in the AWS Macie console.\""
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "SecurityAlertsTopicARN": {
+      "Description": "ARN of the SNS topic for security alerts",
+      "Value": {
+        "Ref": "SecurityAlertsTopic"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-SecurityAlertsTopicARN"
+        }
+      }
+    },
+    "SecurityAlertsTopicName": {
+      "Description": "Name of the SNS topic for security alerts",
+      "Value": {
+        "Fn::GetAtt": [
+          "SecurityAlertsTopic",
+          "TopicName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-SecurityAlertsTopicName"
+        }
+      }
+    },
+    "AlertEmailAddress": {
+      "Description": "Email address subscribed to security alerts",
+      "Value": {
+        "Ref": "AlertEmailAddress"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-AlertEmailAddress"
+        }
+      }
+    },
+    "MacieSessionStatus": {
+      "Description": "Status of the Amazon Macie session",
+      "Condition": "ShouldEnableMacie",
+      "Value": {
+        "Fn::GetAtt": [
+          "MacieSession",
+          "ServiceRole"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MacieSessionStatus"
+        }
+      }
+    },
+    "EventBridgeRulesCount": {
+      "Description": "Number of EventBridge rules created for monitoring",
+      "Value": "6",
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EventBridgeRulesCount"
+        }
+      }
+    }
+  }
+}
