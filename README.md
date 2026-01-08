@@ -196,6 +196,7 @@ Deploys additional region-specific S3 buckets configured for **CRR**, **Object L
 **Stack Diagram:**  
 
 
+
 ---
 
 ### 📦 JSON Stack #3 – Centralized Logging bucket:
@@ -216,26 +217,37 @@ This CloudFormation template deploys a hardened S3 logging bucket with Object Lo
 **Description:**  
 
 **Stack Diagram:**  
+<img width="9064" height="8863" alt="s3_main_bucket" src="https://github.com/user-attachments/assets/15418642-2431-40a7-8b5b-bb966b799cae" />
 
 ---
 
-### 📦 JSON Stack #5 - :
+### 📦 JSON Stack #5 - S3 MRAP:
 
 **Description:**  
 
 **Stack Diagram:**  
+<img width="6847" height="3381" alt="s3_mrap" src="https://github.com/user-attachments/assets/42250329-de93-4d6d-a79a-1fad6478bf65" />
 
 ---
 
-### 📦 JSON Stack #6 - :
+### 📦 JSON Stack #6 - Eventbridge, Macie & SNS:
 
 **Description:**  
 
 **Stack Diagram:**  
+<img width="6841" height="5709" alt="s3_event_macie_sns" src="https://github.com/user-attachments/assets/f0a91131-731f-401f-8649-b7c73ab4edbf" />
 
 ---
 
-### 📦 JSON Stack #7 OPTIONAL - Config for Intelligent-Tiering:
+### 📦 [JSON Stack #7 - CloudTrail Audit Logging:](stack_7_cloudtrail)
+**Description:**  
+
+**Stack Diagram:**  
+<img width="6379" height="5194" alt="s3_cloudtrail" src="https://github.com/user-attachments/assets/02cc4028-1512-4b8d-9317-76942578b895" />
+
+---
+
+### 📦 JSON Stack #8 OPTIONAL - Config for Intelligent-Tiering:
 
 **Description:**  
 
@@ -253,9 +265,22 @@ This CloudFormation template deploys a hardened S3 logging bucket with Object Lo
 
 ---
 
-## 🛡️ Deployment Script: 
+## 🛡️ Deployment Script:  
 
 
 
 ---
+
+## ⚠️ Important Post-Deployment
+
+After parent stack deployment:
+
+- ✅ Confirm email subscription (Stack 6)
+- ✅ Update Replica Stack (Stack 1) with ReplicationRole ARN
+- ✅ Test CloudTrail
+- ✅ Test monitoring alerts
+
+---
+
+## 🛡️ Update Post-Deployment Script:  
 
