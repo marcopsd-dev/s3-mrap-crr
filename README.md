@@ -1,5 +1,5 @@
 # 🌍 Secure Multi-Region S3 Architecture  
-### Cross-Region Replication & Multi-Region Access Points 
+### Cross-Region Replication (CRR) & Multi-Region Access Points (MRAP)
 
 ![AWS](https://img.shields.io/badge/AWS-S3-orange)
 ![Security](https://img.shields.io/badge/Security-High-green)
@@ -9,89 +9,135 @@
 
 ---
 
-# 📑 Table of Contents
+## 📑 Table of Contents
 
-- [Description](#description)
-- [Architecture at a Glance](#architecture)
-- [Security & Resilience Highlights](#security)
-- [CloudFormation Stacks](#cloudformation-stacks)
-  - [JSON Stack #1](#json-stack-1)
-  - [JSON Stack #2](#json-stack-2)
-  - [JSON Stack #3](#json-stack-3)
-
-  
----
-
-## 🧭 Description <a id="description"></a> 
-
-This project implements a secure and resilient Amazon S3 solution featuring KMS-encrypted buckets with Object Lock and versioning to prevent data loss or tampering. Access is tightly controlled using least-privilege IAM roles, and all activity is captured in a restricted, immutable logging bucket for auditing. With built-in S3 replication and CloudWatch monitoring for access-denied events, the architecture creates a high-availability, disaster recovery, and ransomware-resistant design optimized for global access, durability, and security.
+- [Description](#-description)
+- [Architecture at a Glance](#-architecture-at-a-glance)
+- [Security & Resilience Highlights](#-security--resilience-highlights)
+- [Event-Driven Security & Alerting](#-event-driven-security--alerting)
+- [CloudFormation Stacks](#-cloudformation-stacks)
 
 ---
 
-## 🏗️ Architecture at a Glance <a id="architecture"></a>
+## 🧭 Description
 
-| Tools | Description |
-|---------|------------|
-| 🪣 **S3 Buckets** | Three buckets deployed across separate AWS regions for high availability and failover |
-| 🌐 **Cross-Region Replication (CRR)** | Automatic replication of objects and object versions across regions |
-| 🚀 **Multi-Region Access Points (MRAP)** | Global read/write access to the closest available S3 bucket |
-| 🔐 **AWS KMS (customer-managed keys)** | Customer-managed KMS keys per region for encryption at rest |
-| 🧱 **S3 Object Lock (immutable storage)** | Write-once, read-many (WORM) protection to prevent deletion or modification |
-| 🔄 **S3 Object Versioning** | Preserves multiple versions of objects for recovery and rollback |
-| 📊 **Amazon CloudWatch Alerts** | Monitoring and alerts for bucket activity, errors, and security events |
-| 🧾 **IAM Policies & Roles** | Least-privilege access control for S3, KMS, replication, and logging |
-| 🕵️ **Amazon Macie** | Automated discovery and classification of sensitive data in S3 |
+This project implements a **secure, resilient, and compliance-ready Amazon S3 architecture** using **multi-region design principles** and **event-driven security monitoring**.
 
-### Architecture Diagram: 
+The solution combines **KMS-encrypted S3 buckets**, **Object Lock (WORM)**, and **Object Versioning** to protect data against accidental deletion, ransomware, and insider threats. **Cross-Region Replication (CRR)** ensures data durability and disaster recovery, while **Multi-Region Access Points (MRAP)** provide low-latency global access.
+
+Security visibility and automation are enhanced using:
+- **Amazon Macie** for sensitive data discovery
+- **Amazon EventBridge** for security event routing
+- **Amazon SNS** for real-time alerts
+- **AWS CloudTrail & CloudWatch** for centralized logging and auditing
+
+This architecture is well-suited for **regulated environments**, **forensics readiness**, and **zero-trust cloud security models**.
 
 ---
 
-## 🔐 Security & Resilience Highlights <a id="security"></a>
+## 🏗️ Architecture at a Glance
 
-| Tool / Control                           | MITRE ATT&CK Technique    | Technique ID | How It Helps                                                 |
-| ---------------------------------------- | ------------------------- | ------------ | ------------------------------------------------------------ |
-| 🪣 **S3 Buckets (multi-region)**         | Data from Cloud Storage   | T1530        | Protects against data loss by spreading data across regions  |
-| 🌐 **Cross-Region Replication (CRR)**    | Data Encrypted for Impact | T1486        | Ensures data survives ransomware or destructive attacks      |
-| 🚀 **Multi-Region Access Points (MRAP)** | Network Service Discovery | T1046        | Reduces attack impact by routing users to healthy regions    |
-| 🔐 **AWS KMS (CMKs)**                    | Unsecured Credentials     | T1552        | Prevents attackers from reading stolen data at rest          |
-| 🧱 **S3 Object Lock (WORM)**             | Inhibit System Recovery   | T1490        | Stops attackers from deleting or overwriting backups         |
-| 🔄 **S3 Object Versioning**              | Data Destruction          | T1485        | Enables recovery of deleted or altered objects               |
-| 📊 **CloudWatch Alerts**                 | Account Manipulation      | T1098        | Detects abnormal API activity and permission changes         |
-| 🧾 **IAM Policies & Roles**              | Abuse of Valid Accounts   | T1078        | Limits attacker impact through least-privilege access        |
-| 🕵️ **Amazon Macie**                     | Data from Cloud Storage   | T1530        | Detects sensitive data exposure and misconfigurations        |
-
- 
+| Tool | Description |
+|------|------------|
+| 🪣 **S3 Buckets (Multi-Region)** | Regionally isolated buckets for resilience, availability, and fault tolerance |
+| 🌐 **Cross-Region Replication (CRR)** | Automatically replicates objects and versions across regions |
+| 🚀 **Multi-Region Access Points (MRAP)** | Global endpoint that routes traffic to the nearest healthy bucket |
+| 🔐 **AWS KMS (CMKs)** | Customer-managed encryption keys per region |
+| 🧱 **S3 Object Lock (WORM)** | Immutable storage preventing deletion or modification |
+| 🔄 **S3 Object Versioning** | Maintains historical versions for rollback and recovery |
+| 🧾 **AWS CloudTrail** | Captures S3, KMS, IAM, and API activity for auditing |
+| 📊 **Amazon CloudWatch** | Metrics, logs, and alarms for operational and security monitoring |
+| 🕵️ **Amazon Macie** | Detects and classifies sensitive data in S3 |
+| ⚡ **Amazon EventBridge** | Routes Macie findings and API events |
+| 📣 **Amazon SNS** | Sends security alerts and notifications |
+| 🧾 **IAM Policies & Roles** | Enforces least-privilege access across services |
 
 ---
 
-## CloudFormation Stacks
+## 🔐 Security & Resilience Highlights
 
-### [JSON Stack #1](S3_Bucket_CFN_JSON)
+| Control | MITRE ATT&CK Technique | ID | Security Benefit |
+|-------|------------------------|----|------------------|
+| 🪣 **Multi-Region S3** | Data from Cloud Storage | T1530 | Prevents data loss via geographic redundancy |
+| 🌐 **CRR** | Data Encrypted for Impact | T1486 | Preserves clean copies during ransomware events |
+| 🚀 **MRAP** | Network Service Discovery | T1046 | Maintains service availability during regional failures |
+| 🔐 **KMS CMKs** | Unsecured Credentials | T1552 | Protects data confidentiality at rest |
+| 🧱 **Object Lock (WORM)** | Inhibit System Recovery | T1490 | Prevents deletion or tampering of backups |
+| 🔄 **Object Versioning** | Data Destruction | T1485 | Enables rollback after accidental or malicious changes |
+| 🧾 **CloudTrail Logging** | Modify Cloud Compute Infrastructure | T1578 | Detects unauthorized configuration changes |
+| 📊 **CloudWatch Alerts** | Account Manipulation | T1098 | Flags abnormal access or policy changes |
+| 🕵️ **Amazon Macie** | Data from Cloud Storage | T1530 | Identifies sensitive data exposure |
+| ⚡ **EventBridge + SNS** | Command and Control | T1105 | Enables near-real-time incident response |
 
-#### Description:
-This CloudFormation stack implements a secure Amazon S3 storage by enabling Object Lock and Versioning to protect data from deletion or modification, using customer-managed AWS KMS keys for strong encryption, and enforcing least-privilege access through IAM roles, policies, and conditions. A separate, hardened logging bucket is included to securely store audit logs. This design helps protect sensitive data, supports compliance requirements, and improves resilience against accidental or malicious actions.
+---
 
-#### Stack Diagram:
+## ⚡ Event-Driven Security & Alerting
 
+This architecture leverages **event-driven automation** to detect and respond to security risks in near real time.
+
+**Flow Overview:**
+
+1. **Amazon Macie** scans S3 buckets for sensitive data
+2. **Macie findings** are published to **Amazon EventBridge**
+3. **EventBridge rules** filter high-severity findings
+4. **Amazon SNS** sends alerts to security teams
+5. **CloudTrail & CloudWatch** provide investigation context
+
+**Benefits:**
+- Faster detection of data exposure
+- Reduced mean time to respond (MTTR)
+- Centralized, auditable alerting
+- SOC-ready security telemetry
+
+---
+
+## ☁️ CloudFormation Stacks
+
+### 📦 [JSON Stack #1 – Secure S3 Core](S3_Bucket_CFN_JSON)
+
+**Description:**  
+Creates a hardened S3 bucket with **Object Lock**, **Versioning**, **KMS encryption**, and **restricted IAM access**, along with a **dedicated immutable logging bucket**.
+
+**Stack Diagram:**  
 <img width="7659" height="2742" alt="S3_UPDATED_STACK_1" src="https://github.com/user-attachments/assets/8e99ceb6-272b-4335-8b6e-ccde6265a499" />
 
 ---
-### [JSON Stack #2](s3_bucket_region_2)
 
-#### Description:
-This CloudFormation stack deploys a secure, versioned S3 bucket with Object Lock and KMS encryption; reusable across regions for cross-region replication (CRR).
+### 📦 [JSON Stack #2 – Replication Bucket](s3_bucket_region_2)
 
-#### Stack Diagram:
+**Description:**  
+Deploys additional region-specific S3 buckets configured for **CRR**, **Object Lock**, **Versioning**, and **KMS encryption**.
+
+**Stack Diagram:**  
 <img width="6484" height="544" alt="s3_Replicate_Bucket" src="https://github.com/user-attachments/assets/3c3cbc19-6458-4f31-91bf-12af5f1bedba" />
 
 ---
 
-### [JSON Stack #3](S3_CRR_MRAP)
+### 📦 [JSON Stack #3 – CRR & MRAP](S3_CRR_MRAP)
 
-#### Description:
-This CloudFormation template enables S3 Cross-Region Replication (CRR) to automatically replicate objects across multiple buckets in different regions and creates a Multi-Region Access Point (MRAP) for unified access. This ensures high availability, disaster recovery readiness, and global data accessibility while maintaining strong encryption on replicated objects. It helps organizations protect critical data, meet compliance requirements, and simplify cross-region data management in AWS.
+**Description:**  
+Enables **Cross-Region Replication** and configures a **Multi-Region Access Point** for unified global access while maintaining encryption and compliance controls.
 
-#### Stack Diagram:
+**Stack Diagram:**  
 <img width="6228" height="591" alt="s3_CRR_MRAP" src="https://github.com/user-attachments/assets/7a45a333-933d-4f08-818f-2e662164d3f0" />
 
+---
+
+## ✅ Use Cases
+
+- Ransomware-resistant backups
+- Compliance-driven storage (SEC 17a-4, HIPAA, GDPR)
+- Global application data access
+- Forensics & audit readiness
+- Zero-trust cloud architectures
+
+---
+
+## 🛡️ Security Mindset
+
+> **Assume breach. Design for recovery. Detect everything.**
+
+This project emphasizes **prevention, detection, and recovery**—not just availability.
+
+---
 
