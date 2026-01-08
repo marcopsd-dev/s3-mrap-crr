@@ -1,0 +1,868 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Stack1 - Main Bucket Infrastructure: Main S3 Bucket, KMS Key, S3 Access Role, Replication Role, and Replication Configuration (Nested Stack - Depends on Stack0)",
+  "Parameters": {
+    "AdminRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the IAM Admin role for management (PLACEHOLDER: Replace with actual ARN)",
+      "Default": "arn:aws:iam::123456789012:role/REPLACE-WITH-ADMIN-ROLE",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    },
+    "MainBucketName": {
+      "Type": "String",
+      "Description": "Name for the main S3 bucket (must be globally unique, leave empty for auto-generation)",
+      "Default": ""
+    },
+    "LoggingBucketName": {
+      "Type": "String",
+      "Description": "Name of the logging bucket from Stack0 (for S3 access logging)"
+    },
+    "ReplicaBucketARN": {
+      "Type": "String",
+      "Description": "ARN of the replica bucket in the secondary region (from Standalone Replica Stack)",
+      "AllowedPattern": "arn:aws:s3:::.+",
+      "ConstraintDescription": "Must be a valid S3 bucket ARN"
+    },
+    "ReplicaBucketName": {
+      "Type": "String",
+      "Description": "Name of the replica bucket in the secondary region (from Standalone Replica Stack)"
+    },
+    "ReplicaKmsKeyARN": {
+      "Type": "String",
+      "Description": "ARN of the KMS key for the replica bucket (from Standalone Replica Stack)",
+      "AllowedPattern": "arn:aws:kms:[a-z0-9-]+:\\d{12}:key/.+",
+      "ConstraintDescription": "Must be a valid KMS Key ARN"
+    },
+    "ReplicaRegion": {
+      "Type": "String",
+      "Description": "AWS region where the replica bucket is deployed",
+      "Default": "us-west-2",
+      "AllowedValues": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-central-1",
+        "ap-southeast-1",
+        "ap-southeast-2",
+        "ap-northeast-1"
+      ]
+    }
+  },
+  "Conditions": {
+    "HasMainBucketName": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "MainBucketName"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "ReplicationRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "ReplicationRole-${AWS::StackName}"
+        },
+        "Description": "IAM role for S3 Cross-Region Replication",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "s3.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ReplicationPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "AllowReadFromSourceBucket",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetReplicationConfiguration",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "MainS3Bucket",
+                      "Arn"
+                    ]
+                  }
+                },
+                {
+                  "Sid": "AllowReadSourceObjects",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObjectVersionForReplication",
+                    "s3:GetObjectVersionAcl",
+                    "s3:GetObjectVersionTagging"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "MainS3Bucket",
+                            "Arn"
+                          ]
+                        },
+                        "/*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "AllowReplicateToDestinationBucket",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:ReplicateObject",
+                    "s3:ReplicateDelete",
+                    "s3:ReplicateTags"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Ref": "ReplicaBucketARN"
+                        },
+                        "/*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Sid": "AllowDecryptSourceKMSKey",
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:DescribeKey"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "MainS3KmsKey",
+                      "Arn"
+                    ]
+                  },
+                  "Condition": {
+                    "StringLike": {
+                      "kms:ViaService": {
+                        "Fn::Sub": "s3.${AWS::Region}.amazonaws.com"
+                      },
+                      "kms:EncryptionContext:aws:s3:arn": {
+                        "Fn::Join": [
+                          "",
+                          [
+                            {
+                              "Fn::GetAtt": [
+                                "MainS3Bucket",
+                                "Arn"
+                              ]
+                            },
+                            "/*"
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "AllowEncryptDestinationKMSKey",
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Encrypt",
+                    "kms:GenerateDataKey"
+                  ],
+                  "Resource": {
+                    "Ref": "ReplicaKmsKeyARN"
+                  },
+                  "Condition": {
+                    "StringLike": {
+                      "kms:ViaService": {
+                        "Fn::Sub": "s3.${ReplicaRegion}.amazonaws.com"
+                      },
+                      "kms:EncryptionContext:aws:s3:arn": {
+                        "Fn::Join": [
+                          "",
+                          [
+                            {
+                              "Ref": "ReplicaBucketARN"
+                            },
+                            "/*"
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "S3Replication"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack1-MainBucket"
+          }
+        ]
+      }
+    },
+    "MainS3KmsKey": {
+      "Type": "AWS::KMS::Key",
+      "Properties": {
+        "Description": "KMS key for main S3 bucket encryption",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowS3AccessRoleToUseKey",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "S3AccessRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": [
+                "kms:Decrypt",
+                "kms:GenerateDataKey",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowReplicationRoleToDecrypt",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "ReplicationRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*",
+              "Condition": {
+                "StringLike": {
+                  "kms:ViaService": {
+                    "Fn::Sub": "s3.${AWS::Region}.amazonaws.com"
+                  },
+                  "kms:EncryptionContext:aws:s3:arn": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "MainS3Bucket",
+                            "Arn"
+                          ]
+                        },
+                        "/*"
+                      ]
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "Sid": "AllowCloudTrailServiceToEncrypt",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": [
+                "kms:GenerateDataKey",
+                "kms:Decrypt",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*",
+              "Condition": {
+                "StringLike": {
+                  "kms:EncryptionContext:aws:cloudtrail:arn": {
+                    "Fn::Sub": "arn:aws:cloudtrail:*:${AWS::AccountId}:trail/*"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "MainBucketEncryption"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack1-MainBucket"
+          }
+        ]
+      }
+    },
+    "MainS3KmsKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": {
+          "Fn::Sub": "alias/s3-main-${AWS::StackName}"
+        },
+        "TargetKeyId": {
+          "Ref": "MainS3KmsKey"
+        }
+      }
+    },
+    "MainS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "DependsOn": [
+        "S3AccessRole",
+        "ReplicationRole"
+      ],
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": {
+          "Fn::If": [
+            "HasMainBucketName",
+            {
+              "Ref": "MainBucketName"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "ObjectLockEnabled": true,
+        "ObjectLockConfiguration": {
+          "ObjectLockEnabled": "Enabled",
+          "Rule": {
+            "DefaultRetention": {
+              "Mode": "COMPLIANCE",
+              "Days": 30
+            }
+          }
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "NotificationConfiguration": {
+          "EventBridgeConfiguration": {
+            "EventBridgeEnabled": true
+          }
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "MainS3KmsKey",
+                    "Arn"
+                  ]
+                }
+              },
+              "BucketKeyEnabled": true
+            }
+          ]
+        },
+        "ReplicationConfiguration": {
+          "Role": {
+            "Fn::GetAtt": [
+              "ReplicationRole",
+              "Arn"
+            ]
+          },
+          "Rules": [
+            {
+              "Id": "ReplicateAllObjects",
+              "Status": "Enabled",
+              "Priority": 1,
+              "Filter": {},
+              "DeleteMarkerReplication": {
+                "Status": "Enabled"
+              },
+              "Destination": {
+                "Bucket": {
+                  "Ref": "ReplicaBucketARN"
+                },
+                "ReplicationTime": {
+                  "Status": "Enabled",
+                  "Time": {
+                    "Minutes": 15
+                  }
+                },
+                "Metrics": {
+                  "Status": "Enabled",
+                  "EventThreshold": {
+                    "Minutes": 15
+                  }
+                },
+                "EncryptionConfiguration": {
+                  "ReplicaKmsKeyID": {
+                    "Ref": "ReplicaKmsKeyARN"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DeleteOldVersions",
+              "Status": "Enabled",
+              "NoncurrentVersionExpirationInDays": 90,
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7
+              }
+            }
+          ]
+        },
+        "LoggingConfiguration": {
+          "DestinationBucketName": {
+            "Ref": "LoggingBucketName"
+          },
+          "LogFilePrefix": "access-logs-main/"
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "PrimaryDataStorage"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack1-MainBucket"
+          }
+        ]
+      }
+    },
+    "MainS3BucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "MainS3Bucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MainS3Bucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "MainS3Bucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Sid": "AllowRootAccountFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MainS3Bucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "MainS3Bucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Sid": "AllowAdminRoleFullAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MainS3Bucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "MainS3Bucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Sid": "AllowS3AccessRoleReadWrite",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "S3AccessRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:ListBucket"
+              ],
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MainS3Bucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "MainS3Bucket",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "S3AccessRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "S3AccessRole-${AWS::StackName}"
+        },
+        "Description": "IAM role for application access to main S3 bucket (read/write, no delete)",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "AdminRoleARN"
+                }
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "S3ReadWriteNoDeletePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "AllowS3ReadWriteActions",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:PutObject",
+                    "s3:ListBucket",
+                    "s3:ListBucketVersions"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "AllowKMSOperations",
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:GenerateDataKey",
+                    "kms:DescribeKey"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "DenyDeleteActions",
+                  "Effect": "Deny",
+                  "Action": [
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                    "s3:DeleteBucket"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "ApplicationS3Access"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack1-MainBucket"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "MainS3BucketARN": {
+      "Description": "ARN of the main S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "MainS3Bucket",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3BucketARN"
+        }
+      }
+    },
+    "MainS3BucketName": {
+      "Description": "Name of the main S3 bucket",
+      "Value": {
+        "Ref": "MainS3Bucket"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3BucketName"
+        }
+      }
+    },
+    "MainS3BucketDomainName": {
+      "Description": "Domain name of the main S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "MainS3Bucket",
+          "DomainName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3BucketDomainName"
+        }
+      }
+    },
+    "MainS3KmsKeyARN": {
+      "Description": "ARN of the KMS key for main bucket encryption",
+      "Value": {
+        "Fn::GetAtt": [
+          "MainS3KmsKey",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3KmsKeyARN"
+        }
+      }
+    },
+    "MainS3KmsKeyId": {
+      "Description": "ID of the KMS key for main bucket encryption",
+      "Value": {
+        "Ref": "MainS3KmsKey"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3KmsKeyId"
+        }
+      }
+    },
+    "MainS3KmsKeyAlias": {
+      "Description": "Alias of the KMS key for main bucket encryption",
+      "Value": {
+        "Ref": "MainS3KmsKeyAlias"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3KmsKeyAlias"
+        }
+      }
+    },
+    "S3AccessRoleARN": {
+      "Description": "ARN of the S3 access role for application access",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3AccessRole",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-S3AccessRoleARN"
+        }
+      }
+    },
+    "S3AccessRoleName": {
+      "Description": "Name of the S3 access role",
+      "Value": {
+        "Ref": "S3AccessRole"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-S3AccessRoleName"
+        }
+      }
+    },
+    "ReplicationRoleARN": {
+      "Description": "ARN of the S3 replication role for Cross-Region Replication",
+      "Value": {
+        "Fn::GetAtt": [
+          "ReplicationRole",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicationRoleARN"
+        }
+      }
+    },
+    "ReplicationRoleName": {
+      "Description": "Name of the S3 replication role",
+      "Value": {
+        "Ref": "ReplicationRole"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicationRoleName"
+        }
+      }
+    }
+  }
+}
