@@ -1,0 +1,347 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Stack4 - CloudTrail Audit Logging: Comprehensive API call tracking for S3 buckets and related services (Nested Stack - Depends on Stack0, Stack1, Stack3)",
+  "Parameters": {
+    "AdminRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the IAM Admin role for management (PLACEHOLDER: Replace with actual ARN)",
+      "Default": "arn:aws:iam::123456789012:role/REPLACE-WITH-ADMIN-ROLE",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    },
+    "MainBucketName": {
+      "Type": "String",
+      "Description": "Name of the main S3 bucket from Stack1 to audit"
+    },
+    "MainBucketARN": {
+      "Type": "String",
+      "Description": "ARN of the main S3 bucket from Stack1",
+      "AllowedPattern": "arn:aws:s3:::.+",
+      "ConstraintDescription": "Must be a valid S3 bucket ARN"
+    },
+    "LoggingBucketName": {
+      "Type": "String",
+      "Description": "Name of the logging bucket from Stack0 for CloudTrail logs"
+    },
+    "LoggingKmsKeyARN": {
+      "Type": "String",
+      "Description": "ARN of the KMS key for logging bucket encryption from Stack0",
+      "AllowedPattern": "arn:aws:kms:[a-z0-9-]+:\\d{12}:key/.+",
+      "ConstraintDescription": "Must be a valid KMS Key ARN"
+    },
+    "CloudTrailRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the CloudTrail role from Stack0 for CloudWatch Logs",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    },
+    "EnableCloudWatchLogs": {
+      "Type": "String",
+      "Description": "Enable CloudWatch Logs integration for CloudTrail",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ]
+    },
+    "CloudTrailLogRetentionDays": {
+      "Type": "Number",
+      "Description": "Number of days to retain CloudTrail logs in CloudWatch Logs",
+      "Default": "90",
+      "MinValue": "1",
+      "MaxValue": "3653",
+      "ConstraintDescription": "Must be between 1 and 3653 days"
+    }
+  },
+  "Conditions": {
+    "ShouldEnableCloudWatchLogs": {
+      "Fn::Equals": [
+        {
+          "Ref": "EnableCloudWatchLogs"
+        },
+        "true"
+      ]
+    }
+  },
+  "Resources": {
+    "CloudTrailLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "ShouldEnableCloudWatchLogs",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/cloudtrail/${AWS::StackName}"
+        },
+        "RetentionInDays": {
+          "Ref": "CloudTrailLogRetentionDays"
+        },
+        "KmsKeyId": {
+          "Ref": "LoggingKmsKeyARN"
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "CloudTrailAuditLogs"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack4-CloudTrail"
+          }
+        ]
+      }
+    },
+    "S3CloudTrail": {
+      "Type": "AWS::CloudTrail::Trail",
+      "DependsOn": [
+        "CloudTrailLogGroup"
+      ],
+      "Properties": {
+        "TrailName": {
+          "Fn::Sub": "S3AuditTrail-${AWS::StackName}"
+        },
+        "S3BucketName": {
+          "Ref": "LoggingBucketName"
+        },
+        "S3KeyPrefix": "cloudtrail-logs/",
+        "IncludeGlobalServiceEvents": true,
+        "IsLogging": true,
+        "IsMultiRegionTrail": false,
+        "EnableLogFileValidation": true,
+        "EventSelectors": [
+          {
+            "ReadWriteType": "All",
+            "IncludeManagementEvents": true,
+            "DataResources": [
+              {
+                "Type": "AWS::S3::Object",
+                "Values": [
+                  {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Ref": "MainBucketARN"
+                        },
+                        "/*"
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "CloudWatchLogsLogGroupArn": {
+          "Fn::If": [
+            "ShouldEnableCloudWatchLogs",
+            {
+              "Fn::GetAtt": [
+                "CloudTrailLogGroup",
+                "Arn"
+              ]
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "CloudWatchLogsRoleArn": {
+          "Fn::If": [
+            "ShouldEnableCloudWatchLogs",
+            {
+              "Ref": "CloudTrailRoleARN"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "KMSKeyId": {
+          "Ref": "LoggingKmsKeyARN"
+        },
+        "Tags": [
+          {
+            "Key": "Purpose",
+            "Value": "S3AuditLogging"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Stack",
+            "Value": "Stack4-CloudTrail"
+          }
+        ]
+      }
+    },
+    "CloudTrailInsightsEventRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "CloudTrailInsights-${AWS::StackName}"
+        },
+        "Description": "Triggers alert for unusual CloudTrail activity patterns",
+        "EventPattern": {
+          "source": [
+            "aws.cloudtrail"
+          ],
+          "detail-type": [
+            "AWS API Call via CloudTrail"
+          ],
+          "detail": {
+            "eventName": [
+              "PutBucketPolicy",
+              "DeleteBucketPolicy",
+              "PutBucketPublicAccessBlock",
+              "DeleteBucketPublicAccessBlock",
+              "PutBucketEncryption",
+              "DeleteBucketEncryption",
+              "PutBucketVersioning",
+              "PutBucketObjectLockConfiguration",
+              "PutBucketReplication"
+            ]
+          }
+        },
+        "State": "ENABLED",
+        "Targets": []
+      }
+    },
+    "CloudTrailMetricFilter": {
+      "Type": "AWS::Logs::MetricFilter",
+      "Condition": "ShouldEnableCloudWatchLogs",
+      "Properties": {
+        "LogGroupName": {
+          "Ref": "CloudTrailLogGroup"
+        },
+        "FilterPattern": "{($.eventName = PutBucketPolicy) || ($.eventName = DeleteBucketPolicy) || ($.eventName = PutBucketPublicAccessBlock) || ($.eventName = DeleteBucketPublicAccessBlock)}",
+        "MetricTransformations": [
+          {
+            "MetricName": "S3SecurityConfigChanges",
+            "MetricNamespace": "CloudTrail/S3Security",
+            "MetricValue": "1",
+            "DefaultValue": 0
+          }
+        ]
+      }
+    },
+    "CloudTrailSecurityChangesAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Condition": "ShouldEnableCloudWatchLogs",
+      "Properties": {
+        "AlarmName": {
+          "Fn::Sub": "S3SecurityConfigChanges-${AWS::StackName}"
+        },
+        "AlarmDescription": "Alerts when S3 security configuration changes are detected via CloudTrail",
+        "MetricName": "S3SecurityConfigChanges",
+        "Namespace": "CloudTrail/S3Security",
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching"
+      }
+    }
+  },
+  "Outputs": {
+    "CloudTrailARN": {
+      "Description": "ARN of the CloudTrail trail",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3CloudTrail",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailARN"
+        }
+      }
+    },
+    "CloudTrailName": {
+      "Description": "Name of the CloudTrail trail",
+      "Value": {
+        "Ref": "S3CloudTrail"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailName"
+        }
+      }
+    },
+    "CloudTrailLogGroupName": {
+      "Description": "Name of the CloudWatch Logs log group for CloudTrail",
+      "Condition": "ShouldEnableCloudWatchLogs",
+      "Value": {
+        "Ref": "CloudTrailLogGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailLogGroupName"
+        }
+      }
+    },
+    "CloudTrailLogGroupARN": {
+      "Description": "ARN of the CloudWatch Logs log group for CloudTrail",
+      "Condition": "ShouldEnableCloudWatchLogs",
+      "Value": {
+        "Fn::GetAtt": [
+          "CloudTrailLogGroup",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailLogGroupARN"
+        }
+      }
+    },
+    "CloudTrailS3BucketName": {
+      "Description": "S3 bucket where CloudTrail logs are stored",
+      "Value": {
+        "Ref": "LoggingBucketName"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailS3BucketName"
+        }
+      }
+    },
+    "CloudTrailS3Prefix": {
+      "Description": "S3 prefix for CloudTrail logs",
+      "Value": "cloudtrail-logs/",
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailS3Prefix"
+        }
+      }
+    },
+    "CloudTrailInsightsEventRuleName": {
+      "Description": "Name of the EventBridge rule for CloudTrail insights",
+      "Value": {
+        "Ref": "CloudTrailInsightsEventRule"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailInsightsEventRuleName"
+        }
+      }
+    },
+    "CloudWatchAlarmName": {
+      "Description": "Name of the CloudWatch alarm for S3 security changes",
+      "Condition": "ShouldEnableCloudWatchLogs",
+      "Value": {
+        "Ref": "CloudTrailSecurityChangesAlarm"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudWatchAlarmName"
+        }
+      }
+    }
+  }
+}
