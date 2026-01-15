@@ -1,1 +1,601 @@
-
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Parent Stack: Orchestrates multi-region S3 architecture with Stack0 (Logging), Stack1 (Main Bucket + Replication), Stack2 (MRAP), Stack3 (Monitoring), and Stack4 (CloudTrail)",
+  "Parameters": {
+    "AdminRoleARN": {
+      "Type": "String",
+      "Description": "ARN of the IAM Admin role for management (PLACEHOLDER: Replace with actual ARN)",
+      "Default": "arn:aws:iam::123456789012:role/REPLACE-WITH-ADMIN-ROLE",
+      "AllowedPattern": "arn:aws:iam::\\d{12}:role/.+",
+      "ConstraintDescription": "Must be a valid IAM Role ARN"
+    },
+    "MainBucketName": {
+      "Type": "String",
+      "Description": "Name for the main S3 bucket (must be globally unique, leave empty for auto-generation)",
+      "Default": ""
+    },
+    "LoggingBucketName": {
+      "Type": "String",
+      "Description": "Name for the logging S3 bucket (must be globally unique, leave empty for auto-generation)",
+      "Default": ""
+    },
+    "ReplicaBucketName": {
+      "Type": "String",
+      "Description": "Name of the replica bucket from standalone Replica Stack (must already be deployed in secondary region)"
+    },
+    "ReplicaBucketARN": {
+      "Type": "String",
+      "Description": "ARN of the replica bucket from standalone Replica Stack",
+      "AllowedPattern": "arn:aws:s3:::.+",
+      "ConstraintDescription": "Must be a valid S3 bucket ARN"
+    },
+    "ReplicaRegion": {
+      "Type": "String",
+      "Description": "AWS Region where the replica bucket is deployed",
+      "Default": "us-west-2",
+      "AllowedValues": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-central-1",
+        "ap-southeast-1",
+        "ap-southeast-2",
+        "ap-northeast-1"
+      ]
+    },
+    "ReplicaKmsKeyARN": {
+      "Type": "String",
+      "Description": "ARN of the KMS key from standalone Replica Stack for encryption",
+      "AllowedPattern": "arn:aws:kms:[a-z0-9-]+:\\d{12}:key/.+",
+      "ConstraintDescription": "Must be a valid KMS Key ARN"
+    },
+    "AlertEmailAddress": {
+      "Type": "String",
+      "Description": "Email address for receiving security and compliance alerts (PLACEHOLDER: Replace with actual email)",
+      "Default": "security-alerts@example.com",
+      "AllowedPattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+      "ConstraintDescription": "Must be a valid email address"
+    },
+    "MRAPName": {
+      "Type": "String",
+      "Description": "Name for the Multi-Region Access Point (leave empty for auto-generation)",
+      "Default": ""
+    },
+    "EnableMacie": {
+      "Type": "String",
+      "Description": "Enable Amazon Macie for sensitive data discovery",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ]
+    },
+    "EnableCloudWatchLogs": {
+      "Type": "String",
+      "Description": "Enable CloudWatch Logs integration for CloudTrail",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ]
+    },
+    "CloudTrailLogRetentionDays": {
+      "Type": "Number",
+      "Description": "Number of days to retain CloudTrail logs in CloudWatch Logs",
+      "Default": 90,
+      "MinValue": 1,
+      "MaxValue": 3653
+    },
+    "Stack0TemplateURL": {
+      "Type": "String",
+      "Description": "S3 HTTPS URL for Stack0 (Logging Infrastructure) template",
+      "AllowedPattern": "^https://.*\\.s3(\\.|-)[a-z0-9-]+\\.amazonaws\\.com/.*$",
+      "ConstraintDescription": "Must be a valid S3 HTTPS URL"
+    },
+    "Stack1TemplateURL": {
+      "Type": "String",
+      "Description": "S3 HTTPS URL for Stack1 (Main Bucket + Replication) template",
+      "AllowedPattern": "^https://.*\\.s3(\\.|-)[a-z0-9-]+\\.amazonaws\\.com/.*$",
+      "ConstraintDescription": "Must be a valid S3 HTTPS URL"
+    },
+    "Stack2TemplateURL": {
+      "Type": "String",
+      "Description": "S3 HTTPS URL for Stack2 (MRAP) template",
+      "AllowedPattern": "^https://.*\\.s3(\\.|-)[a-z0-9-]+\\.amazonaws\\.com/.*$",
+      "ConstraintDescription": "Must be a valid S3 HTTPS URL"
+    },
+    "Stack3TemplateURL": {
+      "Type": "String",
+      "Description": "S3 HTTPS URL for Stack3 (Monitoring: EventBridge, Macie, SNS) template",
+      "AllowedPattern": "^https://.*\\.s3(\\.|-)[a-z0-9-]+\\.amazonaws\\.com/.*$",
+      "ConstraintDescription": "Must be a valid S3 HTTPS URL"
+    },
+    "Stack4TemplateURL": {
+      "Type": "String",
+      "Description": "S3 HTTPS URL for Stack4 (CloudTrail) template",
+      "AllowedPattern": "^https://.*\\.s3(\\.|-)[a-z0-9-]+\\.amazonaws\\.com/.*$",
+      "ConstraintDescription": "Must be a valid S3 HTTPS URL"
+    }
+  },
+  "Resources": {
+    "Stack0Logging": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "TemplateURL": {
+          "Ref": "Stack0TemplateURL"
+        },
+        "Parameters": {
+          "AdminRoleARN": {
+            "Ref": "AdminRoleARN"
+          },
+          "LoggingBucketName": {
+            "Ref": "LoggingBucketName"
+          }
+        },
+        "TimeoutInMinutes": 30,
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": "Stack0-Logging"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "CentralizedLogging"
+          }
+        ]
+      }
+    },
+    "Stack1MainBucket": {
+      "Type": "AWS::CloudFormation::Stack",
+      "DependsOn": "Stack0Logging",
+      "Properties": {
+        "TemplateURL": {
+          "Ref": "Stack1TemplateURL"
+        },
+        "Parameters": {
+          "AdminRoleARN": {
+            "Ref": "AdminRoleARN"
+          },
+          "MainBucketName": {
+            "Ref": "MainBucketName"
+          },
+          "LoggingBucketName": {
+            "Fn::GetAtt": [
+              "Stack0Logging",
+              "Outputs.LoggingBucketName"
+            ]
+          },
+          "ReplicaBucketARN": {
+            "Ref": "ReplicaBucketARN"
+          },
+          "ReplicaBucketName": {
+            "Ref": "ReplicaBucketName"
+          },
+          "ReplicaKmsKeyARN": {
+            "Ref": "ReplicaKmsKeyARN"
+          },
+          "ReplicaRegion": {
+            "Ref": "ReplicaRegion"
+          }
+        },
+        "TimeoutInMinutes": 30,
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": "Stack1-MainBucket"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "PrimaryDataStorage"
+          }
+        ]
+      }
+    },
+    "Stack2MRAP": {
+      "Type": "AWS::CloudFormation::Stack",
+      "DependsOn": "Stack1MainBucket",
+      "Properties": {
+        "TemplateURL": {
+          "Ref": "Stack2TemplateURL"
+        },
+        "Parameters": {
+          "MainBucketName": {
+            "Fn::GetAtt": [
+              "Stack1MainBucket",
+              "Outputs.MainS3BucketName"
+            ]
+          },
+          "MainBucketARN": {
+            "Fn::GetAtt": [
+              "Stack1MainBucket",
+              "Outputs.MainS3BucketARN"
+            ]
+          },
+          "ReplicaBucketName": {
+            "Ref": "ReplicaBucketName"
+          },
+          "ReplicaBucketARN": {
+            "Ref": "ReplicaBucketARN"
+          },
+          "ReplicaRegion": {
+            "Ref": "ReplicaRegion"
+          },
+          "MRAPName": {
+            "Ref": "MRAPName"
+          }
+        },
+        "TimeoutInMinutes": 30,
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": "Stack2-MRAP"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "MultiRegionAccess"
+          }
+        ]
+      }
+    },
+    "Stack3Monitoring": {
+      "Type": "AWS::CloudFormation::Stack",
+      "DependsOn": [
+        "Stack1MainBucket",
+        "Stack2MRAP"
+      ],
+      "Properties": {
+        "TemplateURL": {
+          "Ref": "Stack3TemplateURL"
+        },
+        "Parameters": {
+          "AdminRoleARN": {
+            "Ref": "AdminRoleARN"
+          },
+          "MainBucketName": {
+            "Fn::GetAtt": [
+              "Stack1MainBucket",
+              "Outputs.MainS3BucketName"
+            ]
+          },
+          "MainBucketARN": {
+            "Fn::GetAtt": [
+              "Stack1MainBucket",
+              "Outputs.MainS3BucketARN"
+            ]
+          },
+          "AlertEmailAddress": {
+            "Ref": "AlertEmailAddress"
+          },
+          "EnableMacie": {
+            "Ref": "EnableMacie"
+          }
+        },
+        "TimeoutInMinutes": 30,
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": "Stack3-Monitoring"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "SecurityMonitoring"
+          }
+        ]
+      }
+    },
+    "Stack4CloudTrail": {
+      "Type": "AWS::CloudFormation::Stack",
+      "DependsOn": [
+        "Stack0Logging",
+        "Stack1MainBucket",
+        "Stack3Monitoring"
+      ],
+      "Properties": {
+        "TemplateURL": {
+          "Ref": "Stack4TemplateURL"
+        },
+        "Parameters": {
+          "AdminRoleARN": {
+            "Ref": "AdminRoleARN"
+          },
+          "MainBucketName": {
+            "Fn::GetAtt": [
+              "Stack1MainBucket",
+              "Outputs.MainS3BucketName"
+            ]
+          },
+          "MainBucketARN": {
+            "Fn::GetAtt": [
+              "Stack1MainBucket",
+              "Outputs.MainS3BucketARN"
+            ]
+          },
+          "LoggingBucketName": {
+            "Fn::GetAtt": [
+              "Stack0Logging",
+              "Outputs.LoggingBucketName"
+            ]
+          },
+          "LoggingKmsKeyARN": {
+            "Fn::GetAtt": [
+              "Stack0Logging",
+              "Outputs.LoggingKmsKeyARN"
+            ]
+          },
+          "CloudTrailRoleARN": {
+            "Fn::GetAtt": [
+              "Stack0Logging",
+              "Outputs.CloudTrailRoleARN"
+            ]
+          },
+          "EnableCloudWatchLogs": {
+            "Ref": "EnableCloudWatchLogs"
+          },
+          "CloudTrailLogRetentionDays": {
+            "Ref": "CloudTrailLogRetentionDays"
+          }
+        },
+        "TimeoutInMinutes": 30,
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": "Stack4-CloudTrail"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "AuditLogging"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "LoggingBucketARN": {
+      "Description": "ARN of the logging S3 bucket (Stack0)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack0Logging",
+          "Outputs.LoggingBucketARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingBucketARN"
+        }
+      }
+    },
+    "LoggingBucketName": {
+      "Description": "Name of the logging S3 bucket (Stack0)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack0Logging",
+          "Outputs.LoggingBucketName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingBucketName"
+        }
+      }
+    },
+    "LoggingKmsKeyARN": {
+      "Description": "ARN of the KMS key for logging bucket encryption (Stack0)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack0Logging",
+          "Outputs.LoggingKmsKeyARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LoggingKmsKeyARN"
+        }
+      }
+    },
+    "CloudTrailRoleARN": {
+      "Description": "ARN of the CloudTrail IAM role (Stack0)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack0Logging",
+          "Outputs.CloudTrailRoleARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailRoleARN"
+        }
+      }
+    },
+    "MainS3BucketARN": {
+      "Description": "ARN of the main S3 bucket (Stack1)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack1MainBucket",
+          "Outputs.MainS3BucketARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3BucketARN"
+        }
+      }
+    },
+    "MainS3BucketName": {
+      "Description": "Name of the main S3 bucket (Stack1)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack1MainBucket",
+          "Outputs.MainS3BucketName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3BucketName"
+        }
+      }
+    },
+    "MainS3KmsKeyARN": {
+      "Description": "ARN of the KMS key for main bucket encryption (Stack1)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack1MainBucket",
+          "Outputs.MainS3KmsKeyARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MainS3KmsKeyARN"
+        }
+      }
+    },
+    "S3AccessRoleARN": {
+      "Description": "ARN of the S3 access role for application access (Stack1)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack1MainBucket",
+          "Outputs.S3AccessRoleARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-S3AccessRoleARN"
+        }
+      }
+    },
+    "ReplicationRoleARN": {
+      "Description": "ARN of the S3 replication role for Cross-Region Replication (Stack1)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack1MainBucket",
+          "Outputs.ReplicationRoleARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ReplicationRoleARN"
+        }
+      }
+    },
+    "MRAPARN": {
+      "Description": "ARN of the Multi-Region Access Point (Stack2)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack2MRAP",
+          "Outputs.MRAPARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPARN"
+        }
+      }
+    },
+    "MRAPAlias": {
+      "Description": "Alias of the Multi-Region Access Point for accessing data (Stack2)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack2MRAP",
+          "Outputs.MRAPAlias"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPAlias"
+        }
+      }
+    },
+    "MRAPEndpoint": {
+      "Description": "HTTPS endpoint for the Multi-Region Access Point (Stack2)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack2MRAP",
+          "Outputs.MRAPEndpoint"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-MRAPEndpoint"
+        }
+      }
+    },
+    "SecurityAlertsTopicARN": {
+      "Description": "ARN of the SNS topic for security alerts (Stack3)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack3Monitoring",
+          "Outputs.SecurityAlertsTopicARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-SecurityAlertsTopicARN"
+        }
+      }
+    },
+    "AlertEmailAddress": {
+      "Description": "Email address subscribed to security alerts (Stack3)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack3Monitoring",
+          "Outputs.AlertEmailAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-AlertEmailAddress"
+        }
+      }
+    },
+    "CloudTrailARN": {
+      "Description": "ARN of the CloudTrail trail (Stack4)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack4CloudTrail",
+          "Outputs.CloudTrailARN"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailARN"
+        }
+      }
+    },
+    "CloudTrailName": {
+      "Description": "Name of the CloudTrail trail (Stack4)",
+      "Value": {
+        "Fn::GetAtt": [
+          "Stack4CloudTrail",
+          "Outputs.CloudTrailName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CloudTrailName"
+        }
+      }
+    }
+  }
+}
