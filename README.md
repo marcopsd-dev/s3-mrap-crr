@@ -48,6 +48,8 @@ Security visibility and automation are enhanced using:
 
 This architecture is well-suited for **regulated environments**, **forensics readiness**, and **zero-trust cloud security models**.
 
+**NOTE: You can find the Terraform version of this project "[HERE](https://github.com/marcopsd-dev/s3-mrap-crr-terraform)"** 🚧 WORK IN PROGRESS 🚧
+
 ---
 
 ## 🏗️ Architecture at a Glance
